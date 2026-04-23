@@ -155,14 +155,13 @@ function AISection({ prompt, color, emptyMsg }) {
   useEffect(() => {
     if (fetched.current) return;
     fetched.current = true;
-    fetch("https://api.anthropic.com/v1/messages", {
+    fetch("/api/ai", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1000, messages:[{role:"user",content:prompt}] })
+      body: JSON.stringify({ prompt })
     })
     .then(r=>r.json())
     .then(d=>{
-      const text = d.content?.find(b=>b.type==="text")?.text||"[]";
-      setData(JSON.parse(text.replace(/```json|```/g,"").trim()));
+      setData(d.result || []);
     })
     .catch(()=>setError(true))
     .finally(()=>setLoading(false));

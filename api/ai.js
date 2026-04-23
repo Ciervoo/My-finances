@@ -9,51 +9,75 @@ export default async function handler(req, res) {
   try {
     const { prompt } = req.body;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
+    // Try Anthropic first, fall back to Groq
+    let text = '';
 
-    const data = await response.json();
-    console.log('Status:', response.status);
-    console.log('Data preview:', JSON.stringify(data).slice(0, 500));
-
-    if (!data.content || !data.content.length) {
-      return res.status(200).json({ result: [], error: 'no content' });
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 2000,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        });
+        const d = await r.json();
+        if (d.content?.[0]?.text) text = d.content[0].text;
+      } catch (e) {
+        console.log('Anthropic failed, trying Groq:', e.message);
+      }
     }
 
-    const text = data.content.find(b => b.type === 'text')?.text || '';
+    // Fall back to Groq if Anthropic didn't work
+    if (!text && process.env.GROQ_API_KEY) {
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'llama3-8b-8192',
+          max_tokens: 2000,
+          messages: [
+            {
+              role: 'system',
+              content: 'Sos un analista financiero argentino experto. Respondés SIEMPRE con JSON válido, sin texto extra, sin markdown, sin explicaciones. Solo el JSON array.'
+            },
+            { role: 'user', content: prompt }
+          ]
+        })
+      });
+      const d = await r.json();
+      if (d.choices?.[0]?.message?.content) text = d.choices[0].message.content;
+    }
 
-    // Try multiple parsing strategies
+    if (!text) {
+      return res.status(200).json({ result: [], error: 'no AI available' });
+    }
+
+    // Parse JSON - multiple strategies
     let parsed = [];
+    const strategies = [
+      () => JSON.parse(text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()),
+      () => { const m = text.match(/\[[\s\S]*\]/); return m ? JSON.parse(m[0]) : null; },
+      () => { const s = text.indexOf('['), e = text.lastIndexOf(']'); return s !== -1 ? JSON.parse(text.slice(s, e+1)) : null; }
+    ];
 
-    try {
-      const clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      parsed = JSON.parse(clean);
-    } catch {
+    for (const strategy of strategies) {
       try {
-        const match = text.match(/\[[\s\S]*\]/);
-        if (match) parsed = JSON.parse(match[0]);
-      } catch {
-        try {
-          const start = text.indexOf('[');
-          const end = text.lastIndexOf(']');
-          if (start !== -1 && end !== -1) {
-            parsed = JSON.parse(text.slice(start, end + 1));
-          }
-        } catch (e) {
-          console.error('All parse strategies failed:', e.message, 'text was:', text.slice(0, 200));
+        const result = strategy();
+        if (result && Array.isArray(result) && result.length > 0) {
+          parsed = result;
+          break;
         }
-      }
+      } catch {}
     }
 
     res.status(200).json({ result: parsed });

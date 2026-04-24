@@ -5,10 +5,10 @@ const DEFAULT_USD_ARS = 1400;
 const USD_ARS = DEFAULT_USD_ARS; // fallback
 
 const DEFAULT_STOCKS = [
-  { id:"s1", ticker:"GGAL", name:"Grupo Galicia", qty:200, avgBuy:1820,    price:null, change24h:null },
-  { id:"s2", ticker:"YPF",  name:"YPF S.A.",      qty:50,  avgBuy:18500,   price:null, change24h:null },
-  { id:"s3", ticker:"MELI", name:"MercadoLibre",  qty:2,   avgBuy:1850000, price:null, change24h:null },
-  { id:"s4", ticker:"BMA",  name:"Banco Macro",   qty:300, avgBuy:920,     price:null, change24h:null },
+  { id:"s1", ticker:"GGAL", name:"Grupo Galicia", qty:200, avgBuy:1820,    price:null, change24h:null, tipo:"accion" },
+  { id:"s2", ticker:"YPFD", name:"YPF S.A.",      qty:50,  avgBuy:18500,   price:null, change24h:null, tipo:"accion" },
+  { id:"s3", ticker:"MELI", name:"MercadoLibre",  qty:2,   avgBuy:1850000, price:null, change24h:null, tipo:"cedear" },
+  { id:"s4", ticker:"BMA",  name:"Banco Macro",   qty:300, avgBuy:920,     price:null, change24h:null, tipo:"accion" },
 ];
 const DEFAULT_CRYPTO = [
   { id:"c1", symbol:"BTC",  name:"Bitcoin",  amount:0.045, avgBuyUSD:52000, priceUSD:null, change24h:null },
@@ -513,7 +513,8 @@ export default function App() {
       }) : updatedCrypto);
       setStocks(updatedStocks);
       setLastUpdate(new Date().toLocaleTimeString("es-AR", {hour:"2-digit", minute:"2-digit"}));
-      persist(updatedStocks, null);
+      // Don't persist here - only persist on user edits to avoid race conditions
+      // persist(updatedStocks, null);
     } catch(e) { console.error(e); }
     setLoadingPrices(false);
   }
@@ -612,7 +613,7 @@ export default function App() {
   function openEdit(type,item) { setForm({...item}); setModal({type,item}); }
   function saveEdit() {
     if (modal.type==="stock") {
-      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h}:s);
+      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion"}:s);
       setStocks(n); persist(n,null);
     } else {
       const n=crypto.map(c=>c.id===form.id?{...form,amount:+form.amount,avgBuyUSD:+form.avgBuyUSD,priceUSD:c.priceUSD,change24h:c.change24h}:c);
@@ -621,7 +622,7 @@ export default function App() {
     setModal(null);
   }
   function addStock() {
-    const n=[...stocks,{id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null}];
+    const n=[...stocks,{id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion"}];
     setStocks(n); persist(n,null); setModal(null); setTimeout(fetchPrices,500);
   }
   function addCrypto() {
@@ -697,8 +698,23 @@ export default function App() {
       )}
 
       {tab==="acciones"&&<>
-        {stocks.map(s=><StockRow key={s.id} s={s} mode={mode} onEdit={i=>openEdit("stock",i)} onDelete={delStock} loading={loadingPrices}/>)}
-        <button onClick={()=>{setForm({});setModal("addStock");}} style={{width:"100%",marginTop:14,padding:"11px",borderRadius:10,border:"1px dashed rgba(26,110,247,0.3)",background:"rgba(26,110,247,0.05)",color:"#1a6ef7",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Agregar acción</button>
+        {["accion","cedear","bono","fci","otro"].map(tipo => {
+          const items = stocks.filter(s => (s.tipo||"accion") === tipo);
+          if (items.length === 0) return null;
+          const labels = {accion:"Acciones",cedear:"CEDEARs",bono:"Bonos",fci:"FCI",otro:"Otros"};
+          const colors = {accion:"#1a6ef7",cedear:"#00dc82",bono:"#f0b90b",fci:"#c084fc",otro:"#888"};
+          return (
+            <div key={tipo} style={{marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 0 6px",borderBottom:`1px solid ${colors[tipo]}33`}}>
+                <div style={{width:4,height:14,borderRadius:2,background:colors[tipo]}}/>
+                <span style={{fontSize:10,fontWeight:800,color:colors[tipo],letterSpacing:1.5,textTransform:"uppercase"}}>{labels[tipo]}</span>
+                <span style={{fontSize:9,color:"#333"}}>({items.length})</span>
+              </div>
+              {items.map(s=><StockRow key={s.id} s={s} mode={mode} onEdit={i=>openEdit("stock",i)} onDelete={delStock} loading={loadingPrices}/>)}
+            </div>
+          );
+        })}
+        <button onClick={()=>{setForm({tipo:"accion"});setModal("addStock");}} style={{width:"100%",marginTop:14,padding:"11px",borderRadius:10,border:"1px dashed rgba(26,110,247,0.3)",background:"rgba(26,110,247,0.05)",color:"#1a6ef7",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Agregar activo</button>
       </>}
 
       {tab==="crypto"&&<>
@@ -744,8 +760,16 @@ export default function App() {
       {/* Modals */}
       {modal&&typeof modal==="object"&&modal.type==="stock"&&(
         <Modal title={`Editar ${form.ticker}`} onClose={()=>setModal(null)}>
-          <Field label="Cantidad (acciones)" value={form.qty} onChange={v=>setForm({...form,qty:v})} type="number"/>
-          <Field label="Precio promedio ARS"  value={form.avgBuy} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:"#555",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Tipo</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+              {[{v:"accion",l:"Acción"},{v:"cedear",l:"CEDEAR"},{v:"bono",l:"Bono"},{v:"fci",l:"FCI"},{v:"otro",l:"Otro"}].map(t=>(
+                <button key={t.v} onClick={()=>setForm({...form,tipo:t.v})} style={{padding:"7px",borderRadius:7,border:`1px solid ${(form.tipo||"accion")===t.v?"#1a6ef7":"rgba(255,255,255,0.08)"}`,background:(form.tipo||"accion")===t.v?"rgba(26,110,247,0.15)":"transparent",color:(form.tipo||"accion")===t.v?"#5b9cff":"#555",fontSize:11,fontWeight:700,cursor:"pointer"}}>{t.l}</button>
+              ))}
+            </div>
+          </div>
+          <Field label="Cantidad" value={form.qty} onChange={v=>setForm({...form,qty:v})} type="number"/>
+          <Field label="Precio promedio ARS" value={form.avgBuy} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
           <button onClick={saveEdit} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Guardar</button>
         </Modal>
       )}
@@ -757,10 +781,18 @@ export default function App() {
         </Modal>
       )}
       {modal==="addStock"&&(
-        <Modal title="Nueva acción" onClose={()=>setModal(null)}>
-          <Field label="Ticker (ej: GGAL)" value={form.ticker||""} onChange={v=>setForm({...form,ticker:v})} placeholder="GGAL"/>
+        <Modal title="Nuevo activo" onClose={()=>setModal(null)}>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:"#555",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Tipo</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+              {[{v:"accion",l:"Acción"},{v:"cedear",l:"CEDEAR"},{v:"bono",l:"Bono"},{v:"fci",l:"FCI"},{v:"otro",l:"Otro"}].map(t=>(
+                <button key={t.v} onClick={()=>setForm({...form,tipo:t.v})} style={{padding:"7px",borderRadius:7,border:`1px solid ${form.tipo===t.v?"#1a6ef7":"rgba(255,255,255,0.08)"}`,background:form.tipo===t.v?"rgba(26,110,247,0.15)":"transparent",color:form.tipo===t.v?"#5b9cff":"#555",fontSize:11,fontWeight:700,cursor:"pointer"}}>{t.l}</button>
+              ))}
+            </div>
+          </div>
+          <Field label="Ticker (ej: GGAL, AL30, AAPL)" value={form.ticker||""} onChange={v=>setForm({...form,ticker:v})} placeholder="GGAL"/>
           <Field label="Nombre" value={form.name||""} onChange={v=>setForm({...form,name:v})} placeholder="Grupo Galicia"/>
-          <Field label="Cantidad de acciones" value={form.qty||""} onChange={v=>setForm({...form,qty:v})} type="number"/>
+          <Field label="Cantidad" value={form.qty||""} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy||""} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
           <button onClick={addStock} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Agregar</button>
         </Modal>

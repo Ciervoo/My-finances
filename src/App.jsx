@@ -64,14 +64,15 @@ function Field({ label, value, onChange, type="text", placeholder }) {
 }
 
 function StockRow({ s, mode, onEdit, onDelete, loading }) {
-  const hasPrice = s.price !== null;
+  const hasPrice = s.price !== null && s.price > 0;
+  const hasAvg   = s.avgBuy !== null && s.avgBuy > 0;
   const valueARS = hasPrice ? s.qty * s.price : null;
-  const costARS  = s.qty * s.avgBuy;
-  const pnlARS   = hasPrice ? valueARS - costARS : null;
+  const costARS  = hasAvg ? s.qty * s.avgBuy : null;
+  const pnlARS   = hasPrice && hasAvg ? valueARS - costARS : null;
   const pnlUSD   = pnlARS !== null ? pnlARS / USD_ARS : null;
-  const pnlPct   = hasPrice ? ((s.price - s.avgBuy) / s.avgBuy) * 100 : null;
+  const pnlPct   = hasPrice && hasAvg ? ((s.price - s.avgBuy) / s.avgBuy) * 100 : null;
   const valueUSD = valueARS !== null ? valueARS / USD_ARS : null;
-  const val  = mode==="ARS" ? (valueARS!==null?`$ ${fmt(valueARS,0)}`:"—") : (valueUSD!==null?`USD ${fmt(valueUSD,0)}`:"—");
+  const val  = mode==="ARS" ? (valueARS!==null?`$ ${fmt(valueARS,0)}`:"sin precio") : (valueUSD!==null?`USD ${fmt(valueUSD,0)}`:"sin precio");
   const pnl  = mode==="ARS" ? (pnlARS!==null?`${pnlARS>=0?"+":""}$ ${fmt(pnlARS,0)}`:"—") : (pnlUSD!==null?`${pnlUSD>=0?"+":""}USD ${fmt(pnlUSD,0)}`:"—");
   const pnlColor = pnlARS!==null ? (pnlARS>=0?"#00dc82":"#ff4646") : "#555";
   return (
@@ -285,9 +286,9 @@ function AnalisisSection({ stocks, crypto, usdArs }) {
     const pnlARS = ((s.price - s.avgBuy) * s.qty).toFixed(0);
     const dias = s.fechaCompra ? Math.floor((Date.now()-new Date(s.fechaCompra))/86400000) : null;
     const rendAnual = dias && dias > 0 ? ((Math.pow(1 + (s.price-s.avgBuy)/s.avgBuy, 365/dias) - 1) * 100).toFixed(1) : null;
-    return `${s.ticker}[tipo:${s.tipo||"accion"} | precio_HOY:ARS${s.price.toFixed(2)} | mi_precio_compra:ARS${s.avgBuy} | ganancia_perdida:${pnlPct}% | P&L_pesos:ARS${pnlARS} | variacion_hoy:${s.change24h?.toFixed(2)||0}%${dias?` | dias_en_cartera:${dias} | rend_anualizado:${rendAnual}%`:''}]`;
-  }).join('
-');
+    const diasStr = dias ? ` | dias_en_cartera:${dias} | rend_anualizado:${rendAnual}%` : '';
+    return s.ticker + '[tipo:' + (s.tipo||'accion') + ' | precio_HOY:ARS' + s.price.toFixed(2) + ' | mi_precio_compra:ARS' + s.avgBuy + ' | ganancia_perdida:' + pnlPct + '% | P&L_pesos:ARS' + pnlARS + ' | variacion_hoy:' + (s.change24h?.toFixed(2)||0) + '%' + diasStr + ']';
+  }).join('\n');
 
   const cryptoData = crypto.filter(c => c.priceUSD && c.avgBuyUSD).map(c => {
     const pnlPct = ((c.priceUSD - c.avgBuyUSD) / c.avgBuyUSD * 100).toFixed(1);
@@ -629,11 +630,11 @@ export default function App() {
   );
 
   // ── Totals ────────────────────────────────────────────────────────────────
-  const stocksTotalARS = stocks.reduce((s,st) => s + (st.price ? st.qty*st.price : 0), 0);
+  const stocksTotalARS = stocks.reduce((s,st) => s + (st.price && st.price > 0 ? st.qty*st.price : 0), 0);
   const cryptoTotalUSD = crypto.reduce((s,c)  => s + (c.priceUSD ? c.amount*c.priceUSD : 0), 0);
   const totalUSD       = stocksTotalARS/usdArs + cryptoTotalUSD;
   const totalARS       = totalUSD * usdArs;
-  const stocksCostARS  = stocks.reduce((s,st) => s + st.qty*st.avgBuy, 0);
+  const stocksCostARS  = stocks.reduce((s,st) => s + (st.price && st.price > 0 && st.avgBuy > 0 ? st.qty*st.avgBuy : 0), 0);
   const cryptoCostUSD  = crypto.reduce((s,c)  => s + c.amount*c.avgBuyUSD, 0);
   const totalCostUSD   = stocksCostARS/usdArs + cryptoCostUSD;
   const totalPnLUSD    = totalUSD - totalCostUSD;

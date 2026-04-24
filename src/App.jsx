@@ -293,24 +293,34 @@ function NewsSection({ portfolioStr, tickers }) {
 
 function AnalisisSection({ stocks, crypto, usdArs }) {
   const [marketData, setMarketData] = useState(null);
+  const [newsContext, setNewsContext] = useState('');
   const [loadingMarket, setLoadingMarket] = useState(true);
   const fetched = useRef(false);
 
   useEffect(() => {
     if (fetched.current) return;
     fetched.current = true;
-    fetch('/api/market', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        stocks: stocks.filter(s=>s.price).map(s=>({ticker:s.ticker, tipo:s.tipo||'accion'})),
-        crypto: crypto.filter(c=>c.priceUSD).map(c=>({symbol:c.symbol}))
-      })
-    })
-    .then(r => r.json())
-    .then(d => setMarketData(d.market || {}))
-    .catch(() => setMarketData({}))
-    .finally(() => setLoadingMarket(false));
+
+    const stocksList = stocks.filter(s=>s.price).map(s=>({ticker:s.ticker, tipo:s.tipo||'accion'}));
+    const cryptoList = crypto.filter(c=>c.priceUSD).map(c=>({symbol:c.symbol}));
+    const allTickers = [...stocksList.map(s=>s.ticker), ...cryptoList.map(c=>c.symbol)];
+
+    // Fetch market data and news in parallel
+    Promise.all([
+      fetch('/api/market', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stocks: stocksList, crypto: cryptoList })
+      }).then(r=>r.json()).catch(()=>({})),
+      fetch('/api/news', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tickers: allTickers, portfolioStr: '' })
+      }).then(r=>r.json()).catch(()=>({}))
+    ]).then(([marketRes, newsRes]) => {
+      setMarketData(marketRes.market || {});
+      setNewsContext((newsRes.news || []).slice(0, 8).map(n => n.title).join(' | '));
+    }).finally(() => setLoadingMarket(false));
   }, []);
 
   if (loadingMarket) return (
@@ -358,35 +368,31 @@ function AnalisisSection({ stocks, crypto, usdArs }) {
   }).join(' || ');
 
   const today = new Date().toLocaleDateString('es-AR');
-  const prompt = `Sos un analista financiero senior especializado en mercados argentinos y crypto. Fecha: ${today}. USD oficial: $${usdArs}.
-
-CARTERA REAL CON CONTEXTO DE MERCADO:
-ACCIONES/BONOS:
-${stocksData || 'ninguna'}
-
-CRYPTO:
-${cryptoData || 'ninguna'}
-
-INSTRUCCIONES: Analizá cada activo considerando:
-1. El P&L real tanto en pesos como en dólares (son diferentes por la variación del tipo de cambio)
-2. La distancia al máximo histórico de 52 semanas (dist_ATH) - si está muy cerca del ATH hay que ser cauteloso
-3. La tendencia reciente (var_semana, var_mes) - no solo el P&L total
-4. El contexto macro argentino actual (inflación, tipo de cambio, riesgo país)
-5. Para bonos: considerá duration, spread y riesgo soberano
-6. Para crypto: considerá el ciclo del mercado y dominancia de BTC
-
-Generá un JSON array. Cada objeto:
-- ticker (string)
-- titulo (8 palabras con el insight principal)
-- signal ("COMPRAR"|"VENDER"|"MANTENER"|"ACUMULAR")
-- conviccion (1-10, sé conservador)
-- analisis (4 oraciones: P&L real en ARS y USD, posición vs ATH, tendencia reciente, recomendación concreta)
-- precio_objetivo (precio concreto realista)
-- potencial ("+X%" o "-X%")
-- horizonte ("corto plazo"|"mediano plazo"|"largo plazo")
-- riesgos (riesgo específico y concreto del activo)
-
-SOLO JSON array, sin markdown.`;
+  const prompt = 'Sos un analista financiero senior especializado en mercados argentinos y crypto.' +
+    ' Fecha: ' + today + '. USD oficial hoy: $' + usdArs + '.' +
+    '\n\nNOTA IMPORTANTE SOBRE EL RENDIMIENTO EN DÓLARES:' +
+    ' El P&L en USD NO es simplemente dividir pesos por el dólar actual.' +
+    ' Se calcula como: lo_que_vale_hoy_en_USD (precio_hoy/dolar_hoy) MENOS lo_que_pagaste_en_USD (precio_compra/dolar_compra).' +
+    ' Si el dólar subió mucho desde la compra, es posible ganar en pesos pero PERDER en dólares.' +
+    '\n\nNOTICIAS DEL DÍA QUE AFECTAN AL MERCADO:' +
+    (newsContext ? '\n' + newsContext : ' (no disponibles)') +
+    '\n\nCARTERA CON DATOS TÉCNICOS REALES:' +
+    '\nACCIONES/BONOS:\n' + (stocksData || 'ninguna') +
+    '\nCRYPTO:\n' + (cryptoData || 'ninguna') +
+    '\n\nINSTRUCCIONES PARA CADA ACTIVO:' +
+    '\n- Mencioná explícitamente si está por encima o por debajo de su máximo de 52 semanas (dist_ATH)' +
+    '\n- Explicá el rendimiento en pesos Y en dólares por separado (pueden ser muy diferentes)' +
+    '\n- Considerá las noticias del día para el análisis' +
+    '\n- Para bonos: riesgo soberano, duration y spread' +
+    '\n- Para crypto: ciclo del mercado, dominancia BTC, noticias crypto' +
+    '\n- Sé específico con precios objetivo basados en el ATH y la tendencia' +
+    '\n\nGenerá un JSON array. Cada objeto:' +
+    '\n- ticker, titulo (8 palabras con insight principal)' +
+    '\n- signal ("COMPRAR"|"VENDER"|"MANTENER"|"ACUMULAR")' +
+    '\n- conviccion (1-10)' +
+    '\n- analisis (4 oraciones: 1-P&L en ARS y USD por separado, 2-posición vs máximo 52sem indicando si está cerca o lejos del techo, 3-impacto de noticias del día, 4-recomendación concreta)' +
+    '\n- precio_objetivo, potencial, horizonte, riesgos' +
+    '\nSOLO JSON array sin markdown.';
 
   return <AISection prompt={prompt} emptyMsg="No se pudo generar el análisis." />;
 }

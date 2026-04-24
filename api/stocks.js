@@ -63,16 +63,8 @@ async function getPrice(token, ticker, mercado = 'bCBA') {
         null;
 
       if (price !== null) {
-        // IOL returns bond prices multiplied by 100 (e.g. 90250 = 902.50)
-        // Detect by checking if price is unreasonably high for a bond
-        // Bonds typically trade between 10-200 in ARS normalized price
-        // but IOL returns them as full integer * 100
-        let finalPrice = price;
-        if (tipo === 'bono' && price > 500) {
-          finalPrice = price / 100;
-        }
-        console.log(`${ticker} price from IOL:`, price, '-> final:', finalPrice, 'change:', change);
-        return { ticker, price: finalPrice, change24h: change, currency: data.moneda || 'ARS' };
+        console.log(`${ticker} price from IOL:`, price, 'change:', change);
+        return { ticker, price, change24h: change, currency: data.moneda || 'ARS' };
       }
     } catch (e) {
       console.error(`Endpoint error for ${ticker}:`, e.message);
@@ -102,24 +94,33 @@ export default async function handler(req, res) {
     const token = await getIOLToken();
 
     const results = await Promise.all(
-      tickers.map(async ({ ticker, mercado, tipo }) => {
-        // Detect correct market based on tipo
-        let markets = [];
+      tickers.map(async (tickerObj) => {
+        const ticker = tickerObj.ticker;
+        const tipo   = tickerObj.tipo || 'accion';
+        const mercado = tickerObj.mercado || 'bCBA';
 
+        let markets = [];
         if (tipo === 'bono') {
-          markets = ['bCBA']; // Bonds always on BCBA
+          markets = ['bCBA'];
         } else if (tipo === 'cedear') {
-          markets = ['bCBA', 'nYSE']; // CEDEARs on BCBA, fallback NYSE
-        } else if (ticker === 'MELI' || ticker === 'GOOGL' || ticker === 'AAPL' || ticker === 'MSFT' || ticker === 'AMZN' || ticker === 'TSLA' || ticker === 'NVDA') {
-          markets = ['nYSE', 'bCBA']; // US stocks try NYSE first
+          markets = ['bCBA', 'nYSE'];
+        } else if (['MELI','GOOGL','AAPL','MSFT','AMZN','TSLA','NVDA'].includes(ticker)) {
+          markets = ['nYSE', 'bCBA'];
         } else {
-          markets = [mercado || 'bCBA', 'nYSE'];
+          markets = [mercado, 'nYSE'];
         }
 
         let price = null;
         for (const m of markets) {
           price = await getPrice(token, ticker, m);
           if (price) break;
+        }
+        if (price) {
+          price.tipo = tipo;
+          // Fix bond prices: IOL returns them x100 (e.g. 90250 = 902.50)
+          if (tipo === 'bono' && price.price > 500) {
+            price.price = price.price / 100;
+          }
         }
         return price;
       })

@@ -226,7 +226,7 @@ export default function App() {
   const [saved,         setSaved]         = useState(false);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [lastUpdate,    setLastUpdate]    = useState(null);
-  const [usdArs,        setUsdArs]        = useState(DEFAULT_usdArs);
+  const [usdArs,        setUsdArs]        = useState(DEFAULT_USD_ARS);
 
   // ── Load from localStorage ───────────────────────────────────────────────
   useEffect(() => {

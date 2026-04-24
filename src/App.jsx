@@ -465,30 +465,35 @@ export default function App() {
   // ── Load from localStorage ───────────────────────────────────────────────
   useEffect(() => {
     async function load() {
-      // Try cloud first, fallback to localStorage
+      // First load from localStorage immediately so app isn't stuck
       try {
-        const r = await fetch('/api/portfolio');
+        const s = localStorage.getItem("portfolio_stocks");
+        const c = localStorage.getItem("portfolio_crypto");
+        const localStocks = s ? JSON.parse(s) : [];
+        const localCrypto = c ? JSON.parse(c) : [];
+        setStocks(localStocks);
+        setCrypto(localCrypto);
+        console.log("Loaded from localStorage - stocks:", localStocks.length, "crypto:", localCrypto.length);
+      } catch(e) {
+        setStocks([]); setCrypto([]);
+      }
+
+      // Then try cloud in background with timeout
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const r = await fetch('/api/portfolio', { signal: controller.signal });
+        clearTimeout(timeout);
         const data = await r.json();
         if (!data.error && (data.stocks.length > 0 || data.crypto.length > 0)) {
           setStocks(data.stocks);
           setCrypto(data.crypto);
-          // Sync to localStorage as backup
           localStorage.setItem("portfolio_stocks", JSON.stringify(data.stocks));
           localStorage.setItem("portfolio_crypto", JSON.stringify(data.crypto));
-          console.log("Loaded from cloud - stocks:", data.stocks.length, "crypto:", data.crypto.length);
-          return;
+          console.log("Synced from cloud - stocks:", data.stocks.length, "crypto:", data.crypto.length);
         }
       } catch(e) {
-        console.log("Cloud load failed, trying localStorage:", e.message);
-      }
-      // Fallback to localStorage
-      try {
-        const s = localStorage.getItem("portfolio_stocks");
-        const c = localStorage.getItem("portfolio_crypto");
-        setStocks(s ? JSON.parse(s) : []);
-        setCrypto(c ? JSON.parse(c) : []);
-      } catch(e) {
-        setStocks([]); setCrypto([]);
+        console.log("Cloud sync skipped:", e.message);
       }
     }
     load();

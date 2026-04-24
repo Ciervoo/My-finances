@@ -63,8 +63,16 @@ async function getPrice(token, ticker, mercado = 'bCBA') {
         null;
 
       if (price !== null) {
-        console.log(`${ticker} price from IOL:`, price, 'change:', change);
-        return { ticker, price, change24h: change, currency: data.moneda || 'ARS' };
+        // IOL returns bond prices multiplied by 100 (e.g. 90250 = 902.50)
+        // Detect by checking if price is unreasonably high for a bond
+        // Bonds typically trade between 10-200 in ARS normalized price
+        // but IOL returns them as full integer * 100
+        let finalPrice = price;
+        if (tipo === 'bono' && price > 500) {
+          finalPrice = price / 100;
+        }
+        console.log(`${ticker} price from IOL:`, price, '-> final:', finalPrice, 'change:', change);
+        return { ticker, price: finalPrice, change24h: change, currency: data.moneda || 'ARS' };
       }
     } catch (e) {
       console.error(`Endpoint error for ${ticker}:`, e.message);

@@ -397,9 +397,9 @@ export default function App() {
   };
 
   // Fetch Binance portfolio on mount
-  useEffect(() => {
+ useEffect(() => {
     if (stocks && crypto) fetchBinancePortfolio();
-  };
+  }, [!!stocks, !!crypto]);
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
   function delStock(id)  { const n=stocks.filter(s=>s.id!==id); setStocks(n); persist(n,null); }

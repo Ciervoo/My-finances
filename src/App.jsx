@@ -64,29 +64,37 @@ function Field({ label, value, onChange, type="text", placeholder }) {
 }
 
 function StockRow({ s, mode, onEdit, onDelete, loading }) {
-  const hasPrice = s.price !== null && s.price > 0;
-  const hasAvg   = s.avgBuy !== null && s.avgBuy > 0;
+  const hasPrice    = s.price !== null && s.price > 0;
+  const hasAvg      = s.avgBuy !== null && s.avgBuy > 0;
+  const hasPriceUSD = s.priceUSD_stock !== null && s.priceUSD_stock > 0;
+  const hasAvgUSD   = s.avgBuyUSD_stock !== null && s.avgBuyUSD_stock > 0;
+
+  // ARS calculations
   const valueARS = hasPrice ? s.qty * s.price : null;
   const costARS  = hasAvg ? s.qty * s.avgBuy : null;
   const pnlARS   = hasPrice && hasAvg ? valueARS - costARS : null;
-
-  // Real USD P&L: uses dolar at purchase time vs dolar today
-  // costUSD = what you paid in USD at purchase (avgBuy / dolarCompra)
-  // valueUSD = what it's worth today (price / dolarHoy)
-  const dolarCompra = s.dolarCompra || USD_ARS; // fallback to current if not set
-  const costUSD_real  = hasAvg ? (s.qty * s.avgBuy) / dolarCompra : null;
-  const valueUSD_real = hasPrice ? (s.qty * s.price) / USD_ARS : null;
-  const pnlUSD_real   = costUSD_real !== null && valueUSD_real !== null ? valueUSD_real - costUSD_real : null;
-  const pnlPctUSD     = costUSD_real ? (pnlUSD_real / costUSD_real) * 100 : null;
-
   const pnlPct   = hasPrice && hasAvg ? ((s.price - s.avgBuy) / s.avgBuy) * 100 : null;
-  const valueUSD = valueUSD_real;
-  const pnlUSD   = pnlUSD_real;
 
-  const val  = mode==="ARS" ? (valueARS!==null?`$ ${fmt(valueARS,0)}`:"sin precio") : (valueUSD!==null?`USD ${fmt(valueUSD,0)}`:"sin precio");
-  const pnl  = mode==="ARS" ? (pnlARS!==null?`${pnlARS>=0?"+":""}$ ${fmt(pnlARS,0)}`:"—") : (pnlUSD!==null?`${pnlUSD>=0?"+":""}USD ${fmt(pnlUSD,0)}`:"—");
+  // USD calculations — uses real CCL price if available, otherwise divide by current USD
+  const valueUSD = hasPriceUSD ? s.qty * s.priceUSD_stock
+                 : hasPrice    ? s.qty * s.price / USD_ARS
+                 : null;
+  const costUSD  = hasAvgUSD   ? s.qty * s.avgBuyUSD_stock
+                 : hasAvg      ? s.qty * s.avgBuy / USD_ARS
+                 : null;
+  const pnlUSD   = valueUSD !== null && costUSD !== null ? valueUSD - costUSD : null;
+  const pnlPctUSD = costUSD ? (pnlUSD / costUSD) * 100 : null;
+
+  const val  = mode==="ARS"
+    ? (valueARS!==null ? `$ ${fmt(valueARS,0)}` : "sin precio")
+    : (valueUSD!==null ? `USD ${fmt(valueUSD,2)}` : "sin precio");
+  const pnl  = mode==="ARS"
+    ? (pnlARS!==null ? `${pnlARS>=0?"+":""}$ ${fmt(pnlARS,0)}` : "—")
+    : (pnlUSD!==null ? `${pnlUSD>=0?"+":""}USD ${fmt(pnlUSD,2)}` : "—");
   const activePnlPct = mode==="ARS" ? pnlPct : pnlPctUSD;
-  const pnlColor = mode==="ARS" ? (pnlARS!==null?(pnlARS>=0?"#00dc82":"#ff4646"):"#555") : (pnlUSD!==null?(pnlUSD>=0?"#00dc82":"#ff4646"):"#555");
+  const pnlColor = mode==="ARS"
+    ? (pnlARS!==null ? (pnlARS>=0?"#00dc82":"#ff4646") : "#555")
+    : (pnlUSD!==null ? (pnlUSD>=0?"#00dc82":"#ff4646") : "#555");
   return (
     <div style={{display:"grid",gridTemplateColumns:"34px 1fr auto auto auto 24px",alignItems:"center",padding:"12px 0",borderBottom:"1px solid rgba(255,255,255,0.05)",gap:10}}>
       <div style={{width:32,height:32,borderRadius:7,flexShrink:0,background:"linear-gradient(135deg,#1a6ef7,#60a5fa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff"}}>{s.ticker.slice(0,4)}</div>
@@ -653,8 +661,16 @@ export default function App() {
         if (iolData.prices) {
           updatedStocks = currentStocks.map(s => {
             const p = iolData.prices[s.ticker];
-            if (p && p.price) return {...s, price: p.price, change24h: p.change24h};
-            return s; // Keep existing data if no price found
+            if (p && p.price) {
+              return {
+                ...s,
+                price: p.price,
+                change24h: p.change24h,
+                // Save CCL USD price from IOL if available
+                priceUSD_stock: p.priceUSD || s.priceUSD_stock || null
+              };
+            }
+            return s;
           });
         }
         // CRITICAL: Always save back to localStorage after price update
@@ -768,7 +784,7 @@ export default function App() {
   function openEdit(type,item) { setForm({...item}); setModal({type,item}); }
   function saveEdit() {
     if (modal.type==="stock") {
-      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion",diasCartera:+form.diasCartera||s.diasCartera||null,dolarCompra:+form.dolarCompra||s.dolarCompra||null}:s);
+      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion",diasCartera:+form.diasCartera||s.diasCartera||null,avgBuyUSD_stock:+form.avgBuyUSD_stock||s.avgBuyUSD_stock||null,priceUSD_stock:s.priceUSD_stock||null}:s);
       setStocks(n); persist(n,null);
     } else {
       const n=crypto.map(c=>c.id===form.id?{...form,amount:+form.amount,avgBuyUSD:+form.avgBuyUSD,priceUSD:c.priceUSD,change24h:c.change24h}:c);
@@ -777,7 +793,7 @@ export default function App() {
     setModal(null);
   }
   function addStock() {
-    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion",diasCartera:+form.diasCartera||null,dolarCompra:+form.dolarCompra||null};
+    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion",diasCartera:+form.diasCartera||null,avgBuyUSD_stock:+form.avgBuyUSD_stock||null,priceUSD_stock:null};
     const n=[...stocks, newItem];
     setStocks(n);
     // Save to localStorage immediately
@@ -937,7 +953,7 @@ export default function App() {
           </div>
           <Field label="Cantidad" value={form.qty} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
-          <Field label="Dólar al momento de compra (ej: 1050)" value={form.dolarCompra||""} onChange={v=>setForm({...form,dolarCompra:v})} placeholder="1050" type="number"/>
+          <Field label="Precio promedio USD (precio CCL de compra, ej: 3.20)" value={form.avgBuyUSD_stock||""} onChange={v=>setForm({...form,avgBuyUSD_stock:v})} placeholder="3.20" type="number"/>
           <Field label="Días en cartera (ej: 45)" value={form.diasCartera||""} onChange={v=>setForm({...form,diasCartera:v})} placeholder="45" type="number"/>
           <button onClick={saveEdit} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Guardar</button>
         </Modal>
@@ -963,7 +979,7 @@ export default function App() {
           <Field label="Nombre" value={form.name||""} onChange={v=>setForm({...form,name:v})} placeholder="Grupo Galicia"/>
           <Field label="Cantidad" value={form.qty||""} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy||""} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
-          <Field label="Dólar al momento de compra (ej: 1050)" value={form.dolarCompra||""} onChange={v=>setForm({...form,dolarCompra:v})} placeholder="1050" type="number"/>
+          <Field label="Precio promedio USD (precio CCL de compra, ej: 3.20)" value={form.avgBuyUSD_stock||""} onChange={v=>setForm({...form,avgBuyUSD_stock:v})} placeholder="3.20" type="number"/>
           <Field label="Días en cartera (ej: 45)" value={form.diasCartera||""} onChange={v=>setForm({...form,diasCartera:v})} placeholder="45" type="number"/>
           <button onClick={addStock} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Agregar</button>
         </Modal>

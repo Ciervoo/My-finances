@@ -19,32 +19,58 @@ async function getIOLToken() {
 
   cachedToken = data.access_token;
   tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
+  console.log('IOL token obtained, expires in', data.expires_in, 's');
   return cachedToken;
 }
 
 async function getPrice(token, ticker, mercado = 'bCBA') {
-  try {
-    const res = await fetch(
-      `https://api.invertironline.com/api/v2/${mercado}/Titulos/${ticker}/CotizacionDetalleMobile`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    const data = await res.json();
-    if (!data || data.status === 404) return null;
+  // Try multiple IOL endpoints
+  const endpoints = [
+    `https://api.invertironline.com/api/v2/${mercado}/Titulos/${ticker}/Cotizacion`,
+    `https://api.invertironline.com/api/v2/${mercado}/Titulos/${ticker}/CotizacionDetalle`,
+  ];
 
-    return {
-      ticker,
-      price:     data.ultimoPrecio || data.ultimoOperado || null,
-      change24h: data.variacionDiaria || data.variacion || null,
-      open:      data.apertura || null,
-      high:      data.maximo || null,
-      low:       data.minimo || null,
-      volume:    data.volumen || null,
-      currency:  data.moneda || 'ARS'
-    };
-  } catch (e) {
-    console.error(`Error fetching ${ticker}:`, e.message);
-    return null;
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        signal: AbortSignal.timeout(8000)
+      });
+
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (!text || text.length < 5) continue;
+
+      const data = JSON.parse(text);
+
+      // Extract price from different possible response formats
+      const price =
+        data.ultimoPrecio ??
+        data.ultimo ??
+        data.precioUltimo ??
+        data.ultimoOperado ??
+        data.cotizacion?.ultimoPrecio ??
+        null;
+
+      const change =
+        data.variacionDiaria ??
+        data.variacion ??
+        data.porcentajeVariacion ??
+        data.cotizacion?.variacionPorcentual ??
+        null;
+
+      if (price !== null) {
+        console.log(`${ticker} price from IOL:`, price, 'change:', change);
+        return { ticker, price, change24h: change, currency: data.moneda || 'ARS' };
+      }
+    } catch (e) {
+      console.error(`Endpoint error for ${ticker}:`, e.message);
+    }
   }
+  return null;
 }
 
 export default async function handler(req, res) {
@@ -57,7 +83,7 @@ export default async function handler(req, res) {
 
   const { tickers } = req.body;
   if (!tickers || !tickers.length) {
-    return res.status(400).json({ error: 'No tickers provided' });
+    return res.status(400).json({ error: 'No tickers', prices: {} });
   }
 
   if (!process.env.IOL_USERNAME || !process.env.IOL_PASSWORD) {
@@ -66,12 +92,11 @@ export default async function handler(req, res) {
 
   try {
     const token = await getIOLToken();
-    console.log('IOL token obtained');
 
     const results = await Promise.all(
       tickers.map(async ({ ticker, mercado }) => {
-        // Try BCBA first, then NYSE for CEDEARs
         let price = await getPrice(token, ticker, mercado || 'bCBA');
+        // For CEDEARs and MELI try NYSE if BCBA fails
         if (!price && mercado !== 'nYSE') {
           price = await getPrice(token, ticker, 'nYSE');
         }
@@ -82,7 +107,7 @@ export default async function handler(req, res) {
     const prices = {};
     results.forEach(r => { if (r) prices[r.ticker] = r; });
 
-    console.log('IOL prices fetched:', Object.keys(prices).length, 'tickers');
+    console.log('IOL prices fetched:', Object.keys(prices).length, 'of', tickers.length, 'tickers');
     res.status(200).json({ prices });
   } catch (err) {
     console.error('IOL handler error:', err.message);

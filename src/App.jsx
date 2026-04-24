@@ -135,6 +135,42 @@ function CryptoRow({ c, mode, onEdit, onDelete, loading }) {
   );
 }
 
+function AICard({ item }) {
+  const [open, setOpen] = useState(false);
+  const signal = item.signal;
+  const sigColor = signal==="COMPRAR"?"#00dc82":signal==="VENDER"?"#ff4646":signal==="MANTENER"?"#f0b90b":"#888";
+  return (
+    <div style={{marginBottom:10,background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderLeft:`3px solid ${sigColor}`,borderRadius:12,overflow:"hidden"}}>
+      <div style={{padding:"14px",cursor:"pointer"}} onClick={()=>setOpen(!open)}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+          <div style={{flex:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+              <span style={{fontSize:12,fontWeight:900,color:"#fff",fontFamily:"monospace"}}>{item.ticker||item.symbol}</span>
+              {signal&&<span style={{fontSize:9,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",padding:"2px 8px",borderRadius:4,background:`${sigColor}18`,color:sigColor}}>{signal}</span>}
+              {item.conviccion&&<span style={{fontSize:9,color:"#444"}}>convicción {item.conviccion}/10</span>}
+            </div>
+            <div style={{fontSize:13,fontWeight:700,color:"#ddd",lineHeight:1.3}}>{item.titulo||item.title}</div>
+          </div>
+          <div style={{fontSize:14,color:"#333"}}>{open?"▲":"▼"}</div>
+        </div>
+      </div>
+      {open&&(
+        <div style={{padding:"0 14px 14px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
+          <div style={{fontSize:12,color:"#666",lineHeight:1.6,marginTop:10}}>{item.analisis||item.summary}</div>
+          {item.precio_objetivo&&(
+            <div style={{display:"flex",gap:16,marginTop:12,flexWrap:"wrap"}}>
+              <div style={{fontSize:10,color:"#444"}}>Objetivo: <span style={{color:"#fff",fontFamily:"monospace",fontWeight:700}}>{item.precio_objetivo}</span></div>
+              {item.potencial&&<div style={{fontSize:10,color:"#444"}}>Potencial: <span style={{color:sigColor,fontFamily:"monospace",fontWeight:700}}>{item.potencial}</span></div>}
+              {item.horizonte&&<div style={{fontSize:10,color:"#444"}}>Horizonte: <span style={{color:"#aaa"}}>{item.horizonte}</span></div>}
+            </div>
+          )}
+          {item.riesgos&&<div style={{marginTop:10,padding:"8px 10px",background:"rgba(255,70,70,0.05)",borderRadius:6,fontSize:11,color:"#666"}}>⚠️ {item.riesgos}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AISection({ prompt, emptyMsg }) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
@@ -164,41 +200,7 @@ function AISection({ prompt, emptyMsg }) {
 
   return (
     <>
-      {data.map((item, i) => {
-        const signal = item.signal;
-        const sigColor = signal==="COMPRAR"?"#00dc82":signal==="VENDER"?"#ff4646":signal==="MANTENER"?"#f0b90b":"#888";
-        const [open, setOpen] = useState(false);
-        return (
-          <div key={i} style={{marginBottom:10,background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderLeft:`3px solid ${sigColor}`,borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"14px",cursor:"pointer"}} onClick={()=>setOpen(!open)}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
-                    <span style={{fontSize:12,fontWeight:900,color:"#fff",fontFamily:"monospace"}}>{item.ticker||item.symbol}</span>
-                    {signal&&<span style={{fontSize:9,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",padding:"2px 8px",borderRadius:4,background:`${sigColor}18`,color:sigColor}}>{signal}</span>}
-                    {item.conviccion&&<span style={{fontSize:9,color:"#444"}}>convicción {item.conviccion}/10</span>}
-                  </div>
-                  <div style={{fontSize:13,fontWeight:700,color:"#ddd",lineHeight:1.3}}>{item.titulo||item.title}</div>
-                </div>
-                <div style={{fontSize:14,color:"#333"}}>{open?"▲":"▼"}</div>
-              </div>
-            </div>
-            {open&&(
-              <div style={{padding:"0 14px 14px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
-                <div style={{fontSize:12,color:"#666",lineHeight:1.6,marginTop:10}}>{item.analisis||item.summary}</div>
-                {item.precio_objetivo&&(
-                  <div style={{display:"flex",gap:16,marginTop:12,flexWrap:"wrap"}}>
-                    <div style={{fontSize:10,color:"#444"}}>Objetivo: <span style={{color:"#fff",fontFamily:"monospace",fontWeight:700}}>{item.precio_objetivo}</span></div>
-                    {item.potencial&&<div style={{fontSize:10,color:"#444"}}>Potencial: <span style={{color:sigColor,fontFamily:"monospace",fontWeight:700}}>{item.potencial}</span></div>}
-                    {item.horizonte&&<div style={{fontSize:10,color:"#444"}}>Horizonte: <span style={{color:"#aaa"}}>{item.horizonte}</span></div>}
-                  </div>
-                )}
-                {item.riesgos&&<div style={{marginTop:10,padding:"8px 10px",background:"rgba(255,70,70,0.05)",borderRadius:6,fontSize:11,color:"#666"}}>⚠️ {item.riesgos}</div>}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {data.map((item, i) => <AICard key={i} item={item} />)}
     </>
   );
 }

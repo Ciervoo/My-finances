@@ -278,23 +278,28 @@ export default function App() {
         }
         return c;
       });
-      const updatedStocks = await Promise.all(stocks.map(async s => {
-        try {
-          const ySymbol = s.ticker === "MELI" ? "MELI" : `${s.ticker}.BA`;
-          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1d&range=1d`;
-          const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-          const res = await fetch(proxy);
-          const json = await res.json();
-          const parsed = JSON.parse(json.contents);
-          const meta = parsed?.chart?.result?.[0]?.meta;
-          if (meta?.regularMarketPrice) {
-            const price = meta.regularMarketPrice;
-            const prev = meta.chartPreviousClose || price;
-            return {...s, price, change24h: ((price - prev) / prev) * 100};
-          }
-        } catch {}
-        return s;
-      }));
+      // Fetch stock prices from IOL
+      let updatedStocks = stocks;
+      try {
+        const iolRes = await fetch('/api/stocks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tickers: stocks.map(s => ({
+              ticker: s.ticker,
+              mercado: s.ticker === 'MELI' ? 'nYSE' : 'bCBA'
+            }))
+          })
+        });
+        const iolData = await iolRes.json();
+        if (iolData.prices) {
+          updatedStocks = stocks.map(s => {
+            const p = iolData.prices[s.ticker];
+            if (p && p.price) return {...s, price: p.price, change24h: p.change24h};
+            return s;
+          });
+        }
+      } catch(e) { console.error('IOL fetch error:', e); }
       // Only update crypto from prices if binance portfolio loaded it first
       // (update prices on existing items, don't replace)
       setCrypto(prev => prev ? prev.map(c => {

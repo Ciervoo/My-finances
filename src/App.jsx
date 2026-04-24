@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const USD_ARS = 1115;
 
@@ -254,16 +254,16 @@ export default function App() {
     load();
   },[]);
 
-  const persist = useCallback(async(ns,nc)=>{
+  const persist = async(ns,nc)=>{
     try {
       if(ns) localStorage.setItem("portfolio_stocks", JSON.stringify(ns));
       if(nc) localStorage.setItem("portfolio_crypto",  JSON.stringify(nc));
       setSaved(true); setTimeout(()=>setSaved(false),1800);
     } catch {}
-  },[]);
+  };
 
   // ── Fetch real prices ────────────────────────────────────────────────────
-  const fetchPrices = useCallback(async()=>{
+  const fetchPrices = async()=>{
     if (!stocks||!crypto) return;
     setLoadingPrices(true);
     try {
@@ -352,7 +352,7 @@ export default function App() {
   ].join(" | ") : "";
 
   // ── Fetch Binance real portfolio ────────────────────────────────────────
-  const fetchBinancePortfolio = useCallback(async () => {
+  const fetchBinancePortfolio = async () => {
     try {
       const res = await fetch('/api/binance');
       const data = await res.json();
@@ -394,12 +394,12 @@ export default function App() {
     } catch (e) {
       console.error('fetchBinancePortfolio error:', e);
     }
-  }, [persist]);
+  };
 
   // Fetch Binance portfolio on mount
   useEffect(() => {
     if (stocks && crypto) fetchBinancePortfolio();
-  }, [!!stocks, !!crypto]);
+  };
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
   function delStock(id)  { const n=stocks.filter(s=>s.id!==id); setStocks(n); persist(n,null); }

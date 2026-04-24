@@ -7,11 +7,11 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const apiKey   = process.env.BINANCE_API_KEY;
+  const apiKey    = process.env.BINANCE_API_KEY;
   const secretKey = process.env.BINANCE_SECRET_KEY;
 
   if (!apiKey || !secretKey) {
-    return res.status(200).json({ error: 'No Binance keys configured', balances: [] });
+    return res.status(200).json({ error: 'Missing keys', balances: [] });
   }
 
   try {
@@ -21,16 +21,25 @@ export default async function handler(req, res) {
       .update(queryString)
       .digest('hex');
 
-    const response = await fetch(
-      `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`,
-      { headers: { 'X-MBX-APIKEY': apiKey } }
-    );
+    const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
+    const response = await fetch(url, {
+      headers: { 'X-MBX-APIKEY': apiKey }
+    });
 
     const data = await response.json();
+    console.log('Binance response code:', data.code);
+    console.log('Binance response msg:', data.msg);
+    console.log('Has balances:', !!data.balances);
 
     if (data.code) {
-      console.error('Binance API error:', data.msg);
-      return res.status(200).json({ error: data.msg, balances: [] });
+      // Binance returned an error
+      console.error('Binance error:', data.code, data.msg);
+      return res.status(200).json({ error: `Binance: ${data.msg}`, balances: [] });
+    }
+
+    if (!data.balances) {
+      console.error('No balances in response:', JSON.stringify(data).slice(0, 200));
+      return res.status(200).json({ error: 'No balances', balances: [] });
     }
 
     const balances = data.balances
@@ -42,6 +51,7 @@ export default async function handler(req, res) {
         locked: parseFloat(b.locked)
       }));
 
+    console.log('Filtered balances count:', balances.length);
     res.status(200).json({ balances });
   } catch (err) {
     console.error('Binance handler error:', err.message);

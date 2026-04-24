@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
-const USD_ARS = 1115;
+const DEFAULT_USD_ARS = 1400;
+const USD_ARS = DEFAULT_USD_ARS; // fallback
 
 const DEFAULT_STOCKS = [
   { id:"s1", ticker:"GGAL", name:"Grupo Galicia", qty:200, avgBuy:1820,    price:null, change24h:null },
@@ -225,6 +226,7 @@ export default function App() {
   const [saved,         setSaved]         = useState(false);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [lastUpdate,    setLastUpdate]    = useState(null);
+  const [usdArs,        setUsdArs]        = useState(DEFAULT_usdArs);
 
   // ── Load from localStorage ───────────────────────────────────────────────
   useEffect(() => {
@@ -237,6 +239,14 @@ export default function App() {
       setStocks(DEFAULT_STOCKS);
       setCrypto(DEFAULT_CRYPTO);
     }
+  }, []);
+
+  // ── Fetch dolar oficial ───────────────────────────────────────────────────
+  useEffect(() => {
+    fetch("https://dolarapi.com/v1/dolares/oficial")
+      .then(r => r.json())
+      .then(d => { if (d.venta) setUsdArs(d.venta); })
+      .catch(() => {});
   }, []);
 
   // ── Persist ──────────────────────────────────────────────────────────────
@@ -285,10 +295,15 @@ export default function App() {
         } catch {}
         return s;
       }));
-      setCrypto(updatedCrypto);
+      // Only update crypto from prices if binance portfolio loaded it first
+      // (update prices on existing items, don't replace)
+      setCrypto(prev => prev ? prev.map(c => {
+        const updated = updatedCrypto.find(u => u.symbol === c.symbol);
+        return updated ? {...c, priceUSD: updated.priceUSD, change24h: updated.change24h} : c;
+      }) : updatedCrypto);
       setStocks(updatedStocks);
       setLastUpdate(new Date().toLocaleTimeString("es-AR", {hour:"2-digit", minute:"2-digit"}));
-      persist(updatedStocks, updatedCrypto);
+      persist(updatedStocks, null);
     } catch(e) { console.error(e); }
     setLoadingPrices(false);
   }
@@ -332,8 +347,10 @@ export default function App() {
     }
   }, [!!stocks, !!crypto]);
 
+  const binanceLoaded = useRef(false);
   useEffect(() => {
-    if (stocks && crypto) {
+    if (stocks && crypto && !binanceLoaded.current) {
+      binanceLoaded.current = true;
       fetchBinancePortfolio();
     }
   }, [!!stocks, !!crypto]);
@@ -345,16 +362,16 @@ export default function App() {
   // ── Totals ────────────────────────────────────────────────────────────────
   const stocksTotalARS = stocks.reduce((s,st) => s + (st.price ? st.qty*st.price : 0), 0);
   const cryptoTotalUSD = crypto.reduce((s,c)  => s + (c.priceUSD ? c.amount*c.priceUSD : 0), 0);
-  const totalUSD       = stocksTotalARS/USD_ARS + cryptoTotalUSD;
-  const totalARS       = totalUSD * USD_ARS;
+  const totalUSD       = stocksTotalARS/usdArs + cryptoTotalUSD;
+  const totalARS       = totalUSD * usdArs;
   const stocksCostARS  = stocks.reduce((s,st) => s + st.qty*st.avgBuy, 0);
   const cryptoCostUSD  = crypto.reduce((s,c)  => s + c.amount*c.avgBuyUSD, 0);
-  const totalCostUSD   = stocksCostARS/USD_ARS + cryptoCostUSD;
+  const totalCostUSD   = stocksCostARS/usdArs + cryptoCostUSD;
   const totalPnLUSD    = totalUSD - totalCostUSD;
   const totalPnLPct    = totalCostUSD ? (totalPnLUSD/totalCostUSD)*100 : 0;
   const displayTotal   = mode==="ARS" ? `$ ${fmt(totalARS,0)}` : `USD ${fmt(totalUSD)}`;
   const displayPnL     = mode==="ARS"
-    ? `${totalPnLUSD>=0?"+":""}$ ${fmt(totalPnLUSD*USD_ARS,0)}`
+    ? `${totalPnLUSD>=0?"+":""}$ ${fmt(totalPnLUSD*usdArs,0)}`
     : `${totalPnLUSD>=0?"+":""}USD ${fmt(totalPnLUSD)}`;
 
   const portfolioStr = [
@@ -423,8 +440,8 @@ export default function App() {
       {/* Cards */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:18}}>
         {[
-          {label:"Acciones",color:"#1a6ef7",val:mode==="ARS"?`$ ${fmt(stocksTotalARS,0)}`:`USD ${fmt(stocksTotalARS/USD_ARS,0)}`,count:`${stocks.length} posiciones`},
-          {label:"Crypto",  color:"#f0b90b",val:mode==="ARS"?`$ ${fmt(cryptoTotalUSD*USD_ARS,0)}`:`USD ${fmt(cryptoTotalUSD)}`,count:`${crypto.length} activos`},
+          {label:"Acciones",color:"#1a6ef7",val:mode==="ARS"?`$ ${fmt(stocksTotalARS,0)}`:`USD ${fmt(stocksTotalARS/usdArs,0)}`,count:`${stocks.length} posiciones`},
+          {label:"Crypto",  color:"#f0b90b",val:mode==="ARS"?`$ ${fmt(cryptoTotalUSD*usdArs,0)}`:`USD ${fmt(cryptoTotalUSD)}`,count:`${crypto.length} activos`},
         ].map(card=>(
           <div key={card.label} style={{background:`${card.color}0f`,border:`1px solid ${card.color}22`,borderRadius:10,padding:"12px 14px"}}>
             <div style={{fontSize:9,color:card.color,letterSpacing:2,textTransform:"uppercase",marginBottom:5}}>{card.label}</div>
@@ -486,7 +503,7 @@ export default function App() {
       )}
 
       <div style={{marginTop:24,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.04)",display:"flex",justifyContent:"space-between"}}>
-        <div style={{fontSize:9,color:"#1e1e1e"}}>USD OF. ${fmt(USD_ARS,0)} · precios en tiempo real</div>
+        <div style={{fontSize:9,color:"#1e1e1e"}}>USD OF. ${fmt(usdArs,0)} · precios en tiempo real</div>
         <div style={{fontSize:9,color:"#1e1e1e"}}>💾 auto-guardado</div>
       </div>
 

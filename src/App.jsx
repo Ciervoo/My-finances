@@ -464,19 +464,34 @@ export default function App() {
 
   // ── Load from localStorage ───────────────────────────────────────────────
   useEffect(() => {
-    try {
-      const s = localStorage.getItem("portfolio_stocks");
-      const c = localStorage.getItem("portfolio_crypto");
-      const parsedStocks = s ? JSON.parse(s) : [];
-      const parsedCrypto = c ? JSON.parse(c) : [];
-      setStocks(parsedStocks);
-      setCrypto(parsedCrypto);
-      console.log("Loaded from storage - stocks:", parsedStocks.length, "crypto:", parsedCrypto.length);
-    } catch(e) {
-      console.error("Load error:", e);
-      setStocks([]);
-      setCrypto([]);
+    async function load() {
+      // Try cloud first, fallback to localStorage
+      try {
+        const r = await fetch('/api/portfolio');
+        const data = await r.json();
+        if (!data.error && (data.stocks.length > 0 || data.crypto.length > 0)) {
+          setStocks(data.stocks);
+          setCrypto(data.crypto);
+          // Sync to localStorage as backup
+          localStorage.setItem("portfolio_stocks", JSON.stringify(data.stocks));
+          localStorage.setItem("portfolio_crypto", JSON.stringify(data.crypto));
+          console.log("Loaded from cloud - stocks:", data.stocks.length, "crypto:", data.crypto.length);
+          return;
+        }
+      } catch(e) {
+        console.log("Cloud load failed, trying localStorage:", e.message);
+      }
+      // Fallback to localStorage
+      try {
+        const s = localStorage.getItem("portfolio_stocks");
+        const c = localStorage.getItem("portfolio_crypto");
+        setStocks(s ? JSON.parse(s) : []);
+        setCrypto(c ? JSON.parse(c) : []);
+      } catch(e) {
+        setStocks([]); setCrypto([]);
+      }
     }
+    load();
   }, []);
 
   // ── Fetch dolar oficial ───────────────────────────────────────────────────
@@ -488,16 +503,20 @@ export default function App() {
   }, []);
 
   // ── Persist ──────────────────────────────────────────────────────────────
-  function persist(ns, nc) {
+  async function persist(ns, nc) {
     try {
-      if (ns !== null && ns !== undefined) {
-        localStorage.setItem("portfolio_stocks", JSON.stringify(ns));
-        console.log("Saved stocks:", ns.length);
-      }
-      if (nc !== null && nc !== undefined) {
-        localStorage.setItem("portfolio_crypto", JSON.stringify(nc));
-        console.log("Saved crypto:", nc.length);
-      }
+      // Save to localStorage immediately
+      if (ns !== null && ns !== undefined) localStorage.setItem("portfolio_stocks", JSON.stringify(ns));
+      if (nc !== null && nc !== undefined) localStorage.setItem("portfolio_crypto", JSON.stringify(nc));
+      // Save to cloud in background
+      fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stocks: ns !== null && ns !== undefined ? ns : undefined,
+          crypto: nc !== null && nc !== undefined ? nc : undefined
+        })
+      }).then(() => console.log("Cloud save OK")).catch(e => console.log("Cloud save failed:", e.message));
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
     } catch(e) { console.error("persist error:", e); }
@@ -670,9 +689,14 @@ export default function App() {
     const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion",diasCartera:+form.diasCartera||null};
     const n=[...stocks, newItem];
     setStocks(n);
-    // Save immediately and verify
+    // Save to localStorage immediately
     localStorage.setItem("portfolio_stocks", JSON.stringify(n));
-    console.log("Added stock, saved:", n.length, "items");
+    // Save to cloud
+    fetch('/api/portfolio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stocks: n })
+    }).then(() => console.log("Stock saved to cloud:", n.length)).catch(e => console.log("Cloud save failed:", e.message));
     setSaved(true); setTimeout(()=>setSaved(false),1800);
     setModal(null);
     setTimeout(fetchPrices, 500);

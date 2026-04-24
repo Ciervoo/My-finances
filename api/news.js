@@ -1,9 +1,15 @@
 const RSS_FEEDS = [
-  { name: "Ámbito",          url: "https://www.ambito.com/rss/pages/economia.xml" },
-  { name: "Infobae",         url: "https://www.infobae.com/feeds/rss/economia/" },
-  { name: "El Cronista",     url: "https://www.cronista.com/files/rss/finanzas.xml" },
-  { name: "Bloomberg Línea", url: "https://www.bloomberglinea.com/arc/outboundfeeds/rss/category/economia/?outputType=xml" },
-  { name: "iProfesional",    url: "https://www.iprofesional.com/rss/home.xml" },
+  // Argentina
+  { name: "Ámbito",          url: "https://www.ambito.com/rss/pages/economia.xml",          region: "AR" },
+  { name: "Infobae",         url: "https://www.infobae.com/feeds/rss/economia/",             region: "AR" },
+  { name: "El Cronista",     url: "https://www.cronista.com/files/rss/finanzas.xml",         region: "AR" },
+  { name: "Bloomberg Línea", url: "https://www.bloomberglinea.com/arc/outboundfeeds/rss/category/economia/?outputType=xml", region: "AR" },
+  { name: "iProfesional",    url: "https://www.iprofesional.com/rss/home.xml",               region: "AR" },
+  // Internacional
+  { name: "Reuters",         url: "https://feeds.reuters.com/reuters/businessNews",           region: "INT" },
+  { name: "CNBC",            url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",    region: "INT" },
+  { name: "CoinDesk",        url: "https://www.coindesk.com/arc/outboundfeeds/rss/",         region: "INT" },
+  { name: "MarketWatch",     url: "https://feeds.marketwatch.com/marketwatch/topstories/",   region: "INT" },
 ];
 
 function parseXML(text) {
@@ -84,11 +90,15 @@ export default async function handler(req, res) {
   });
 
   // Tag with portfolio tickers
+  const feedRegion = {};
+  RSS_FEEDS.forEach(f => { feedRegion[f.name] = f.region; });
+
   const tagged = unique.map(item => {
     const text = `${item.title} ${item.desc}`.toLowerCase();
     const matched = tickers.filter(t => text.includes(t.toLowerCase()));
     return {
       source:      item.source,
+      region:      feedRegion[item.source] || 'INT',
       title:       item.title,
       description: item.desc,
       link:        item.link,

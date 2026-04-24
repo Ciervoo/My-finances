@@ -4,18 +4,8 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, L
 const DEFAULT_USD_ARS = 1400;
 const USD_ARS = DEFAULT_USD_ARS; // fallback
 
-const DEFAULT_STOCKS = [
-  { id:"s1", ticker:"GGAL", name:"Grupo Galicia", qty:200, avgBuy:1820,    price:null, change24h:null, tipo:"accion" },
-  { id:"s2", ticker:"YPFD", name:"YPF S.A.",      qty:50,  avgBuy:18500,   price:null, change24h:null, tipo:"accion" },
-  { id:"s3", ticker:"MELI", name:"MercadoLibre",  qty:2,   avgBuy:1850000, price:null, change24h:null, tipo:"cedear" },
-  { id:"s4", ticker:"BMA",  name:"Banco Macro",   qty:300, avgBuy:920,     price:null, change24h:null, tipo:"accion" },
-];
-const DEFAULT_CRYPTO = [
-  { id:"c1", symbol:"BTC",  name:"Bitcoin",  amount:0.045, avgBuyUSD:52000, priceUSD:null, change24h:null },
-  { id:"c2", symbol:"ETH",  name:"Ethereum", amount:0.8,   avgBuyUSD:2800,  priceUSD:null, change24h:null },
-  { id:"c3", symbol:"USDT", name:"Tether",   amount:420,   avgBuyUSD:1,     priceUSD:null, change24h:null },
-  { id:"c4", symbol:"BNB",  name:"BNB",      amount:1.2,   avgBuyUSD:480,   priceUSD:null, change24h:null },
-];
+const DEFAULT_STOCKS = [];
+const DEFAULT_CRYPTO = [];
 
 function fmt(n, dec=2) {
   if (n===null||n===undefined||isNaN(n)) return "—";

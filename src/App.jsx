@@ -82,7 +82,7 @@ function StockRow({ s, mode, onEdit, onDelete, loading }) {
         <div style={{fontSize:13,fontWeight:700,color:"#efefef"}}>{s.ticker}{s.change24h!==null&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:s.change24h>=0?"#00dc82":"#ff4646"}}>{s.change24h>=0?"+":""}{s.change24h?.toFixed(2)}%</span>}</div>
         <div style={{fontSize:10,color:"#444"}}>
           {s.qty} · PM ${fmt(s.avgBuy,0)}
-          {s.fechaCompra && <span style={{marginLeft:6,color:"#333"}}>· {Math.floor((Date.now()-new Date(s.fechaCompra))/86400000)}d</span>}
+          {s.diasCartera && <span style={{marginLeft:6,color:"#333"}}>· {s.diasCartera}d</span>}
         </div>
       </div>
       <div style={{textAlign:"right"}}>
@@ -284,7 +284,7 @@ function AnalisisSection({ stocks, crypto, usdArs }) {
   const stocksData = stocks.filter(s => s.price && s.avgBuy).map(s => {
     const pnlPct = ((s.price - s.avgBuy) / s.avgBuy * 100).toFixed(1);
     const pnlARS = ((s.price - s.avgBuy) * s.qty).toFixed(0);
-    const dias = s.fechaCompra ? Math.floor((Date.now()-new Date(s.fechaCompra))/86400000) : null;
+    const dias = s.diasCartera || null;
     const rendAnual = dias && dias > 0 ? ((Math.pow(1 + (s.price-s.avgBuy)/s.avgBuy, 365/dias) - 1) * 100).toFixed(1) : null;
     const diasStr = dias ? ` | dias_en_cartera:${dias} | rend_anualizado:${rendAnual}%` : '';
     return s.ticker + '[tipo:' + (s.tipo||'accion') + ' | precio_HOY:ARS' + s.price.toFixed(2) + ' | mi_precio_compra:ARS' + s.avgBuy + ' | ganancia_perdida:' + pnlPct + '% | P&L_pesos:ARS' + pnlARS + ' | variacion_hoy:' + (s.change24h?.toFixed(2)||0) + '%' + diasStr + ']';
@@ -467,11 +467,15 @@ export default function App() {
     try {
       const s = localStorage.getItem("portfolio_stocks");
       const c = localStorage.getItem("portfolio_crypto");
-      setStocks(s ? JSON.parse(s) : DEFAULT_STOCKS);
-      setCrypto(c ? JSON.parse(c) : DEFAULT_CRYPTO);
-    } catch {
-      setStocks(DEFAULT_STOCKS);
-      setCrypto(DEFAULT_CRYPTO);
+      const parsedStocks = s ? JSON.parse(s) : [];
+      const parsedCrypto = c ? JSON.parse(c) : [];
+      setStocks(parsedStocks);
+      setCrypto(parsedCrypto);
+      console.log("Loaded from storage - stocks:", parsedStocks.length, "crypto:", parsedCrypto.length);
+    } catch(e) {
+      console.error("Load error:", e);
+      setStocks([]);
+      setCrypto([]);
     }
   }, []);
 
@@ -601,7 +605,7 @@ export default function App() {
             change24h: old?.change24h || null
           };
         });
-        persist(null, newItems);
+        localStorage.setItem("portfolio_crypto", JSON.stringify(newItems));
         return newItems;
       });
     } catch(e) { console.error('fetchBinancePortfolio error:', e); }
@@ -620,9 +624,9 @@ export default function App() {
   useEffect(() => {
     if (stocks !== null && crypto !== null && !binanceLoaded.current) {
       binanceLoaded.current = true;
-      setTimeout(fetchBinancePortfolio, 1000); // slight delay after prices load
+      setTimeout(fetchBinancePortfolio, 2000);
     }
-  }, [stocks !== null, crypto !== null]);
+  }, [!!stocks, !!crypto]);
 
   if (!stocks || !crypto) return (
     <div style={{minHeight:"100vh",background:"#090a0c",display:"flex",alignItems:"center",justifyContent:"center",color:"#333",fontSize:13}}>Cargando…</div>
@@ -654,7 +658,7 @@ export default function App() {
   function openEdit(type,item) { setForm({...item}); setModal({type,item}); }
   function saveEdit() {
     if (modal.type==="stock") {
-      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion",fechaCompra:form.fechaCompra||s.fechaCompra||null}:s);
+      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion",diasCartera:+form.diasCartera||s.diasCartera||null}:s);
       setStocks(n); persist(n,null);
     } else {
       const n=crypto.map(c=>c.id===form.id?{...form,amount:+form.amount,avgBuyUSD:+form.avgBuyUSD,priceUSD:c.priceUSD,change24h:c.change24h}:c);
@@ -663,7 +667,7 @@ export default function App() {
     setModal(null);
   }
   function addStock() {
-    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion",fechaCompra:form.fechaCompra||null};
+    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion",diasCartera:+form.diasCartera||null};
     const n=[...stocks, newItem];
     setStocks(n);
     // Save immediately and verify
@@ -818,7 +822,7 @@ export default function App() {
           </div>
           <Field label="Cantidad" value={form.qty} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
-          <Field label="Fecha de compra (opcional)" value={form.fechaCompra||""} onChange={v=>setForm({...form,fechaCompra:v})} placeholder="2024-01-15" type="date"/>
+          <Field label="Días en cartera (ej: 45)" value={form.diasCartera||""} onChange={v=>setForm({...form,diasCartera:v})} placeholder="45" type="number"/>
           <button onClick={saveEdit} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Guardar</button>
         </Modal>
       )}
@@ -843,7 +847,7 @@ export default function App() {
           <Field label="Nombre" value={form.name||""} onChange={v=>setForm({...form,name:v})} placeholder="Grupo Galicia"/>
           <Field label="Cantidad" value={form.qty||""} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy||""} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
-          <Field label="Fecha de compra (opcional)" value={form.fechaCompra||""} onChange={v=>setForm({...form,fechaCompra:v})} placeholder="2024-01-15" type="date"/>
+          <Field label="Días en cartera (ej: 45)" value={form.diasCartera||""} onChange={v=>setForm({...form,diasCartera:v})} placeholder="45" type="number"/>
           <button onClick={addStock} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Agregar</button>
         </Modal>
       )}

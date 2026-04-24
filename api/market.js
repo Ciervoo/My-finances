@@ -20,42 +20,53 @@ async function getIOLToken() {
 }
 
 async function getHistoricalData(token, ticker, mercado = 'bCBA') {
-  try {
-    // Get 1 year of daily data
-    const to = new Date().toISOString().split('T')[0];
-    const from = new Date(Date.now() - 365*24*60*60*1000).toISOString().split('T')[0];
-    const url = `https://api.invertironline.com/api/v2/${mercado}/Titulos/${ticker}/Cotizacion/seriehistorica/${from}/${to}/ajustada`;
-    const res = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` },
-      signal: AbortSignal.timeout(8000)
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data || !Array.isArray(data) || data.length === 0) return null;
+  const to = new Date().toISOString().split('T')[0];
+  const from = new Date(Date.now() - 365*24*60*60*1000).toISOString().split('T')[0];
 
-    const prices = data.map(d => d.ultimoPrecio || d.apertura || 0).filter(p => p > 0);
-    if (prices.length === 0) return null;
+  const endpoints = [
+    `https://api.invertironline.com/api/v2/${mercado}/Titulos/${ticker}/Cotizacion/seriehistorica/${from}/${to}/ajustada`,
+    `https://api.invertironline.com/api/v2/${mercado}/Titulos/${ticker}/Cotizacion/seriehistorica/${from}/${to}/sinAjustar`,
+  ];
 
-    const ath = Math.max(...prices);
-    const atl = Math.min(...prices);
-    const current = prices[prices.length - 1];
-    const weekAgo = prices[Math.max(0, prices.length - 6)];
-    const monthAgo = prices[Math.max(0, prices.length - 22)];
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (!text || text.length < 10) continue;
+      const data = JSON.parse(text);
+      if (!data || !Array.isArray(data) || data.length === 0) continue;
 
-    return {
-      ticker,
-      ath,
-      atl,
-      distanceFromATH: ((current - ath) / ath * 100).toFixed(1),
-      weekChange: ((current - weekAgo) / weekAgo * 100).toFixed(1),
-      monthChange: ((current - monthAgo) / monthAgo * 100).toFixed(1),
-      trend: current > monthAgo ? 'alcista' : 'bajista',
-      dataPoints: prices.length
-    };
-  } catch(e) {
-    console.error(`Historical data error for ${ticker}:`, e.message);
-    return null;
+      const prices = data.map(d =>
+        d.ultimoPrecio || d.ultimo || d.precioUltimo || d.apertura || d.cierre || 0
+      ).filter(p => p > 0);
+
+      if (prices.length < 5) continue;
+
+      const ath = Math.max(...prices);
+      const current = prices[prices.length - 1];
+      const weekAgo = prices[Math.max(0, prices.length - 6)];
+      const monthAgo = prices[Math.max(0, prices.length - 22)];
+
+      console.log(`${ticker} historical: ${prices.length} points, ATH: ${ath}, current: ${current}`);
+
+      return {
+        ticker,
+        ath: parseFloat(ath.toFixed(2)),
+        distanceFromATH: ((current - ath) / ath * 100).toFixed(1),
+        weekChange: ((current - weekAgo) / weekAgo * 100).toFixed(1),
+        monthChange: ((current - monthAgo) / monthAgo * 100).toFixed(1),
+        trend: current > monthAgo ? 'alcista' : 'bajista',
+        dataPoints: prices.length
+      };
+    } catch(e) {
+      console.error(`Historical endpoint error for ${ticker}:`, e.message);
+    }
   }
+  return null;
 }
 
 // Get crypto historical data from Binance

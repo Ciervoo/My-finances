@@ -206,13 +206,85 @@ function AISection({ prompt, emptyMsg }) {
   );
 }
 
-function NewsSection({ portfolioStr }) {
-  const prompt = `Generá un JSON array con 5 noticias financieras relevantes para HOY para un inversor argentino con esta cartera: ${portfolioStr}. Cada noticia: id(número), source(medio), time("hace X min" o "hace X h"), tag(categoría 1-2 palabras MAYÚSCULAS), titulo(título concreto), analisis(2-3 oraciones), impact("bullish","bearish","neutral"), tickers(array de tickers afectados, puede ser vacío), signal(null). SOLO JSON array sin markdown.`;
-  return <AISection prompt={prompt} emptyMsg="No se pudieron cargar noticias." />;
+function NewsSection({ portfolioStr, tickers }) {
+  const [news, setNews]       = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  function loadNews() {
+    setLoading(true);
+    setNews(null);
+    fetch('/api/news', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers, portfolioStr })
+    })
+    .then(r => r.json())
+    .then(d => setNews(d.news || []))
+    .catch(() => setNews([]))
+    .finally(() => setLoading(false));
+  }
+
+  useEffect(() => { loadNews(); }, []);
+
+  if (loading) return (
+    <div style={{textAlign:"center",padding:"48px 0",color:"#333"}}>
+      <div style={{fontSize:28,marginBottom:10,display:"inline-block",animation:"spin 1.5s linear infinite"}}>◌</div>
+      <div style={{fontSize:12}}>Cargando noticias reales…</div>
+    </div>
+  );
+  if (!news || !news.length) return (
+    <div style={{textAlign:"center",padding:"32px 0",color:"#333",fontSize:12}}>
+      No se pudieron cargar noticias.
+      <button onClick={loadNews} style={{display:"block",margin:"12px auto 0",padding:"8px 16px",borderRadius:8,border:"1px solid rgba(255,255,255,0.1)",background:"transparent",color:"#555",cursor:"pointer",fontSize:12}}>↻ Reintentar</button>
+    </div>
+  );
+
+  return (
+    <>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <button onClick={loadNews} style={{padding:"5px 12px",borderRadius:7,border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.04)",color:"#555",cursor:"pointer",fontSize:10,fontWeight:700,letterSpacing:1}}>↻ ACTUALIZAR</button>
+      </div>
+      {news.map((item, i) => {
+        const tagColor = item.impact==="bullish"?"#00dc82":item.impact==="bearish"?"#ff4646":"#888";
+        return (
+          <div key={i} style={{
+            padding:"14px", marginBottom:10,
+            background: item.inPortfolio?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.02)",
+            border: item.inPortfolio?`1px solid rgba(255,255,255,0.09)`:"1px solid rgba(255,255,255,0.04)",
+            borderRadius:12, borderLeft:`3px solid ${item.inPortfolio?tagColor:"transparent"}`,
+            position:"relative"
+          }}>
+            {item.inPortfolio&&(
+              <div style={{position:"absolute",top:10,right:10,fontSize:8,fontWeight:800,letterSpacing:1.5,color:tagColor,background:`${tagColor}18`,padding:"2px 6px",borderRadius:4,textTransform:"uppercase"}}>en cartera</div>
+            )}
+            <div style={{display:"flex",gap:7,alignItems:"flex-start"}}>
+              <div style={{width:7,height:7,borderRadius:"50%",background:tagColor,flexShrink:0,marginTop:4}}/>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:5,flexWrap:"wrap"}}>
+                  <span style={{fontSize:9,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",background:"rgba(255,255,255,0.07)",color:"#555",padding:"2px 6px",borderRadius:3}}>{item.source}</span>
+                  <span style={{fontSize:10,color:"#333"}}>{item.time}</span>
+                </div>
+                <div style={{fontSize:13,fontWeight:700,color:"#e8e8e8",lineHeight:1.4,marginBottom:5}}>{item.title}</div>
+                {item.description&&<div style={{fontSize:11,color:"#555",lineHeight:1.5}}>{item.description}</div>}
+                {item.tickers?.length>0&&(
+                  <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
+                    {item.tickers.map(t=>(
+                      <span key={t} style={{fontSize:9,fontWeight:700,fontFamily:"monospace",padding:"2px 7px",borderRadius:4,background:"rgba(255,255,255,0.07)",color:"#888"}}>{t}</span>
+                    ))}
+                  </div>
+                )}
+                {item.link&&<a href={item.link} target="_blank" rel="noreferrer" style={{fontSize:10,color:"#1a6ef7",marginTop:6,display:"inline-block"}}>Leer nota →</a>}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
 }
 
 function AnalisisSection({ portfolioStr }) {
-  const prompt = `Sos un analista financiero senior especializado en mercados argentinos y crypto. Analizá esta cartera: ${portfolioStr}. Para cada activo generá un JSON array con: ticker(o symbol), titulo(máx 10 palabras), signal("COMPRAR","VENDER","MANTENER","ACUMULAR"), conviccion(1-10), analisis(3-4 oraciones como especialista), precio_objetivo(string), potencial("+X%" o "-X%"), horizonte("corto plazo","mediano plazo","largo plazo"), riesgos(1 oración). SOLO JSON array sin markdown.`;
+  const prompt = `Sos un analista financiero senior. Tenés estos datos REALES de la cartera del inversor: ${portfolioStr}. Usá SOLO estos precios reales para tu análisis. Para cada activo generá un JSON array con: ticker(o symbol), titulo(análisis concreto basado en precio real, máx 10 palabras), signal("COMPRAR","VENDER","MANTENER","ACUMULAR"), conviccion(1-10 basado en datos reales), analisis(3-4 oraciones usando los precios reales provistos, mencioná % de ganancia/pérdida real, contexto macro argentino actual), precio_objetivo(precio objetivo realista en la moneda del activo), potencial(upside/downside real como "+X%" o "-X%"), horizonte("corto plazo","mediano plazo","largo plazo"), riesgos(1 oración con riesgo concreto). SOLO JSON array sin markdown.`;
   return <AISection prompt={prompt} emptyMsg="No se pudo generar el análisis." />;
 }
 
@@ -487,11 +559,13 @@ export default function App() {
         <div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <div style={{fontSize:11,color:"#444"}}>Noticias financieras · hoy</div>
-            <div style={{fontSize:9,color:"#00dc82",fontWeight:700,letterSpacing:1.5,display:"flex",alignItems:"center",gap:5,textTransform:"uppercase"}}>
-              <div style={{width:5,height:5,borderRadius:"50%",background:"#00dc82"}}/>IA
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{fontSize:9,color:"#00dc82",fontWeight:700,letterSpacing:1.5,display:"flex",alignItems:"center",gap:5,textTransform:"uppercase"}}>
+                <div style={{width:5,height:5,borderRadius:"50%",background:"#00dc82"}}/>RSS real
+              </div>
             </div>
           </div>
-          <NewsSection portfolioStr={portfolioStr}/>
+          <NewsSection portfolioStr={portfolioStr} tickers={stocks.map(s=>s.ticker).concat(crypto.map(c=>c.symbol))}/>
         </div>
       )}
 

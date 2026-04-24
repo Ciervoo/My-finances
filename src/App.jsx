@@ -524,14 +524,25 @@ export default function App() {
 
   // ── Fetch real prices ────────────────────────────────────────────────────
   async function fetchPrices() {
-    if (!stocks || !crypto) return;
+    // Read fresh from localStorage to avoid stale closure
+    let currentStocks, currentCrypto;
+    try {
+      const s = localStorage.getItem("portfolio_stocks");
+      const c = localStorage.getItem("portfolio_crypto");
+      currentStocks = s ? JSON.parse(s) : stocks || [];
+      currentCrypto = c ? JSON.parse(c) : crypto || [];
+    } catch {
+      currentStocks = stocks || [];
+      currentCrypto = crypto || [];
+    }
+    if (!currentStocks && !currentCrypto) return;
     setLoadingPrices(true);
     try {
-      const symbols = crypto.filter(c => c.symbol !== "USDT").map(c => c.symbol + "USDT");
+      const symbols = currentCrypto.filter(c => c.symbol !== "USDT").map(c => c.symbol + "USDT");
       const binanceRes = await Promise.allSettled(
         symbols.map(sym => fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${sym}`).then(r => r.json()))
       );
-      const updatedCrypto = crypto.map(c => {
+      const updatedCrypto = currentCrypto.map(c => {
         if (c.symbol === "USDT") return {...c, priceUSD:1, change24h:0};
         const idx = symbols.indexOf(c.symbol + "USDT");
         if (idx === -1) return c;
@@ -542,13 +553,13 @@ export default function App() {
         return c;
       });
       // Fetch stock prices from IOL
-      let updatedStocks = stocks;
+      let updatedStocks = currentStocks;
       try {
         const iolRes = await fetch('/api/stocks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            tickers: stocks.map(s => ({
+            tickers: currentStocks.map(s => ({
               ticker: s.ticker,
               tipo: s.tipo || 'accion',
               mercado: (s.tipo === 'cedear' || s.ticker === 'MELI') ? 'nYSE' : 'bCBA'
@@ -557,7 +568,7 @@ export default function App() {
         });
         const iolData = await iolRes.json();
         if (iolData.prices) {
-          updatedStocks = stocks.map(s => {
+          updatedStocks = currentStocks.map(s => {
             const p = iolData.prices[s.ticker];
             if (p && p.price) return {...s, price: p.price, change24h: p.change24h};
             return s; // Keep existing data if no price found
@@ -631,21 +642,18 @@ export default function App() {
   }
 
   // ── Effects ───────────────────────────────────────────────────────────────
+  const initialized = useRef(false);
   useEffect(() => {
-    if (stocks && crypto) {
+    if (stocks !== null && crypto !== null && !initialized.current) {
+      initialized.current = true;
+      // Start price fetching once on mount
       fetchPrices();
       const t = setInterval(fetchPrices, 60000);
+      // Load Binance after delay
+      setTimeout(fetchBinancePortfolio, 2000);
       return () => clearInterval(t);
     }
-  }, [!!stocks, !!crypto]);
-
-  const binanceLoaded = useRef(false);
-  useEffect(() => {
-    if (stocks !== null && crypto !== null && !binanceLoaded.current) {
-      binanceLoaded.current = true;
-      setTimeout(fetchBinancePortfolio, 2000);
-    }
-  }, [!!stocks, !!crypto]);
+  }, [stocks !== null, crypto !== null]);
 
   if (!stocks || !crypto) return (
     <div style={{minHeight:"100vh",background:"#090a0c",display:"flex",alignItems:"center",justifyContent:"center",color:"#333",fontSize:13}}>Cargando…</div>

@@ -94,11 +94,24 @@ export default async function handler(req, res) {
     const token = await getIOLToken();
 
     const results = await Promise.all(
-      tickers.map(async ({ ticker, mercado }) => {
-        let price = await getPrice(token, ticker, mercado || 'bCBA');
-        // For CEDEARs and MELI try NYSE if BCBA fails
-        if (!price && mercado !== 'nYSE') {
-          price = await getPrice(token, ticker, 'nYSE');
+      tickers.map(async ({ ticker, mercado, tipo }) => {
+        // Detect correct market based on tipo
+        let markets = [];
+
+        if (tipo === 'bono') {
+          markets = ['bCBA']; // Bonds always on BCBA
+        } else if (tipo === 'cedear') {
+          markets = ['bCBA', 'nYSE']; // CEDEARs on BCBA, fallback NYSE
+        } else if (ticker === 'MELI' || ticker === 'GOOGL' || ticker === 'AAPL' || ticker === 'MSFT' || ticker === 'AMZN' || ticker === 'TSLA' || ticker === 'NVDA') {
+          markets = ['nYSE', 'bCBA']; // US stocks try NYSE first
+        } else {
+          markets = [mercado || 'bCBA', 'nYSE'];
+        }
+
+        let price = null;
+        for (const m of markets) {
+          price = await getPrice(token, ticker, m);
+          if (price) break;
         }
         return price;
       })

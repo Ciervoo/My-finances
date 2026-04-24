@@ -390,29 +390,46 @@ export default function App() {
     try {
       const res = await fetch("/api/binance");
       const data = await res.json();
-      if (data.error || !data.balances?.length) return;
-      const symbols = data.balances.filter(b => !["USDT","BUSD","FDUSD"].includes(b.symbol)).map(b => b.symbol + "USDT");
+      if (data.error || !data.balances?.length) {
+        console.log('Binance:', data.error || 'no balances');
+        return;
+      }
+
+      const symbols = data.balances
+        .filter(b => !["USDT","BUSD","FDUSD"].includes(b.symbol))
+        .map(b => b.symbol + "USDT");
+
       const priceRes = await Promise.allSettled(
         symbols.map(s => fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${s}`).then(r => r.json()))
       );
+
       const priceMap = { USDT:1, BUSD:1, FDUSD:1 };
       symbols.forEach((s, i) => {
         if (priceRes[i].status === "fulfilled" && priceRes[i].value.price) {
           priceMap[s.replace("USDT","")] = parseFloat(priceRes[i].value.price);
         }
       });
-      const newCrypto = data.balances.map((b, i) => ({
-        id: "b" + b.symbol,
-        symbol: b.symbol,
-        name: b.symbol,
-        amount: b.amount,
-        avgBuyUSD: priceMap[b.symbol] || 0,
-        priceUSD: priceMap[b.symbol] || null,
-        change24h: null
-      }));
-      setCrypto(newCrypto);
-      persist(null, newCrypto);
-    } catch(e) { console.error(e); }
+
+      // Merge with existing crypto — preserve avgBuyUSD if already set
+      setCrypto(prev => {
+        const existing = prev || [];
+        const newItems = data.balances.map(b => {
+          const old = existing.find(c => c.symbol === b.symbol);
+          return {
+            id: old?.id || "b" + b.symbol,
+            symbol: b.symbol,
+            name: old?.name || b.symbol,
+            amount: b.amount,
+            // Keep existing avgBuyUSD if set, otherwise use current price
+            avgBuyUSD: (old?.avgBuyUSD && old.avgBuyUSD > 0) ? old.avgBuyUSD : (priceMap[b.symbol] || 0),
+            priceUSD: priceMap[b.symbol] || old?.priceUSD || null,
+            change24h: old?.change24h || null
+          };
+        });
+        persist(null, newItems);
+        return newItems;
+      });
+    } catch(e) { console.error('fetchBinancePortfolio error:', e); }
   }
 
   // ── Effects ───────────────────────────────────────────────────────────────
@@ -426,11 +443,11 @@ export default function App() {
 
   const binanceLoaded = useRef(false);
   useEffect(() => {
-    if (stocks && crypto && !binanceLoaded.current) {
+    if (stocks !== null && crypto !== null && !binanceLoaded.current) {
       binanceLoaded.current = true;
-      fetchBinancePortfolio();
+      setTimeout(fetchBinancePortfolio, 1000); // slight delay after prices load
     }
-  }, [!!stocks, !!crypto]);
+  }, [stocks !== null, crypto !== null]);
 
   if (!stocks || !crypto) return (
     <div style={{minHeight:"100vh",background:"#090a0c",display:"flex",alignItems:"center",justifyContent:"center",color:"#333",fontSize:13}}>Cargando…</div>

@@ -69,12 +69,24 @@ function StockRow({ s, mode, onEdit, onDelete, loading }) {
   const valueARS = hasPrice ? s.qty * s.price : null;
   const costARS  = hasAvg ? s.qty * s.avgBuy : null;
   const pnlARS   = hasPrice && hasAvg ? valueARS - costARS : null;
-  const pnlUSD   = pnlARS !== null ? pnlARS / USD_ARS : null;
+
+  // Real USD P&L: uses dolar at purchase time vs dolar today
+  // costUSD = what you paid in USD at purchase (avgBuy / dolarCompra)
+  // valueUSD = what it's worth today (price / dolarHoy)
+  const dolarCompra = s.dolarCompra || USD_ARS; // fallback to current if not set
+  const costUSD_real  = hasAvg ? (s.qty * s.avgBuy) / dolarCompra : null;
+  const valueUSD_real = hasPrice ? (s.qty * s.price) / USD_ARS : null;
+  const pnlUSD_real   = costUSD_real !== null && valueUSD_real !== null ? valueUSD_real - costUSD_real : null;
+  const pnlPctUSD     = costUSD_real ? (pnlUSD_real / costUSD_real) * 100 : null;
+
   const pnlPct   = hasPrice && hasAvg ? ((s.price - s.avgBuy) / s.avgBuy) * 100 : null;
-  const valueUSD = valueARS !== null ? valueARS / USD_ARS : null;
+  const valueUSD = valueUSD_real;
+  const pnlUSD   = pnlUSD_real;
+
   const val  = mode==="ARS" ? (valueARS!==null?`$ ${fmt(valueARS,0)}`:"sin precio") : (valueUSD!==null?`USD ${fmt(valueUSD,0)}`:"sin precio");
   const pnl  = mode==="ARS" ? (pnlARS!==null?`${pnlARS>=0?"+":""}$ ${fmt(pnlARS,0)}`:"—") : (pnlUSD!==null?`${pnlUSD>=0?"+":""}USD ${fmt(pnlUSD,0)}`:"—");
-  const pnlColor = pnlARS!==null ? (pnlARS>=0?"#00dc82":"#ff4646") : "#555";
+  const activePnlPct = mode==="ARS" ? pnlPct : pnlPctUSD;
+  const pnlColor = mode==="ARS" ? (pnlARS!==null?(pnlARS>=0?"#00dc82":"#ff4646"):"#555") : (pnlUSD!==null?(pnlUSD>=0?"#00dc82":"#ff4646"):"#555");
   return (
     <div style={{display:"grid",gridTemplateColumns:"34px 1fr auto auto auto 24px",alignItems:"center",padding:"12px 0",borderBottom:"1px solid rgba(255,255,255,0.05)",gap:10}}>
       <div style={{width:32,height:32,borderRadius:7,flexShrink:0,background:"linear-gradient(135deg,#1a6ef7,#60a5fa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff"}}>{s.ticker.slice(0,4)}</div>
@@ -93,7 +105,7 @@ function StockRow({ s, mode, onEdit, onDelete, loading }) {
         <div style={{fontSize:12,fontWeight:700,color:pnlColor,fontFamily:"monospace"}}>{loading&&!hasPrice?<Spinner/>:pnl}</div>
         <div style={{fontSize:9,color:"#333"}}>rendimiento</div>
       </div>
-      <div style={{textAlign:"right"}}><Badge pct={pnlPct}/></div>
+      <div style={{textAlign:"right"}}><Badge pct={activePnlPct}/></div>
       <button onClick={()=>onDelete(s.id)} style={{background:"transparent",border:"none",color:"#2a2a2a",cursor:"pointer",fontSize:16,padding:0}} onMouseOver={e=>e.target.style.color="#ff4646"} onMouseOut={e=>e.target.style.color="#2a2a2a"}>×</button>
     </div>
   );
@@ -280,41 +292,103 @@ function NewsSection({ portfolioStr, tickers }) {
 }
 
 function AnalisisSection({ stocks, crypto, usdArs }) {
-  // Build detailed portfolio data with real P&L
+  const [marketData, setMarketData] = useState(null);
+  const [loadingMarket, setLoadingMarket] = useState(true);
+  const fetched = useRef(false);
+
+  useEffect(() => {
+    if (fetched.current) return;
+    fetched.current = true;
+    fetch('/api/market', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stocks: stocks.filter(s=>s.price).map(s=>({ticker:s.ticker, tipo:s.tipo||'accion'})),
+        crypto: crypto.filter(c=>c.priceUSD).map(c=>({symbol:c.symbol}))
+      })
+    })
+    .then(r => r.json())
+    .then(d => setMarketData(d.market || {}))
+    .catch(() => setMarketData({}))
+    .finally(() => setLoadingMarket(false));
+  }, []);
+
+  if (loadingMarket) return (
+    <div style={{textAlign:"center",padding:"48px 0",color:"#333"}}>
+      <div style={{fontSize:28,marginBottom:10,display:"inline-block",animation:"spin 1.5s linear infinite"}}>◌</div>
+      <div style={{fontSize:12}}>Cargando datos de mercado…</div>
+    </div>
+  );
+
+  const market = marketData || {};
+
   const stocksData = stocks.filter(s => s.price && s.avgBuy).map(s => {
     const pnlPct = ((s.price - s.avgBuy) / s.avgBuy * 100).toFixed(1);
     const pnlARS = ((s.price - s.avgBuy) * s.qty).toFixed(0);
+    const dolarCompra = s.dolarCompra || usdArs;
+    const costUSD = (s.qty * s.avgBuy) / dolarCompra;
+    const valueUSD = (s.qty * s.price) / usdArs;
+    const pnlUSD = (valueUSD - costUSD).toFixed(0);
+    const pnlPctUSD = (((valueUSD - costUSD) / costUSD) * 100).toFixed(1);
     const dias = s.diasCartera || null;
     const rendAnual = dias && dias > 0 ? ((Math.pow(1 + (s.price-s.avgBuy)/s.avgBuy, 365/dias) - 1) * 100).toFixed(1) : null;
-    const diasStr = dias ? ` | dias_en_cartera:${dias} | rend_anualizado:${rendAnual}%` : '';
-    return s.ticker + '[tipo:' + (s.tipo||'accion') + ' | precio_HOY:ARS' + s.price.toFixed(2) + ' | mi_precio_compra:ARS' + s.avgBuy + ' | ganancia_perdida:' + pnlPct + '% | P&L_pesos:ARS' + pnlARS + ' | variacion_hoy:' + (s.change24h?.toFixed(2)||0) + '%' + diasStr + ']';
-  }).join('\n');
+    const m = market[s.ticker] || {};
+    const athStr = m.ath ? ` | ATH_52sem:ARS${m.ath.toFixed(0)} | dist_ATH:${m.distanceFromATH}% | tendencia:${m.trend} | var_semana:${m.weekChange}% | var_mes:${m.monthChange}%` : '';
+    const diasStr = dias ? ` | dias_cartera:${dias} | rend_anual:${rendAnual}%` : '';
+    return s.ticker + '[tipo:' + (s.tipo||'accion') +
+      ' | precio_HOY:ARS' + s.price.toFixed(2) +
+      ' | precio_compra:ARS' + s.avgBuy +
+      ' | P&L_ARS:' + pnlPct + '% (ARS' + pnlARS + ')' +
+      ' | P&L_USD:' + pnlPctUSD + '% (USD' + pnlUSD + ')' +
+      ' | dolar_compra:' + dolarCompra + ' | dolar_hoy:' + usdArs +
+      ' | var_hoy:' + (s.change24h?.toFixed(2)||0) + '%' +
+      athStr + diasStr + ']';
+  }).join('
+');
 
   const cryptoData = crypto.filter(c => c.priceUSD && c.avgBuyUSD).map(c => {
     const pnlPct = ((c.priceUSD - c.avgBuyUSD) / c.avgBuyUSD * 100).toFixed(1);
     const pnlUSD = ((c.priceUSD - c.avgBuyUSD) * c.amount).toFixed(2);
-    return c.symbol + '[precio_HOY:USD' + c.priceUSD.toFixed(2) + ' | mi_precio_compra:USD' + c.avgBuyUSD + ' | ganancia_perdida:' + pnlPct + '% | P&L_dolares:USD' + pnlUSD + ' | variacion_hoy:' + (c.change24h?.toFixed(2)||0) + '%]';
-  }).join('\n');
+    const m = market[c.symbol] || {};
+    const athStr = m.ath ? ` | ATH_52sem:USD${m.ath.toFixed(2)} | dist_ATH:${m.distanceFromATH}% | tendencia:${m.trend} | var_semana:${m.weekChange}% | var_mes:${m.monthChange}%` : '';
+    return c.symbol + '[precio_HOY:USD' + c.priceUSD.toFixed(2) +
+      ' | precio_compra:USD' + c.avgBuyUSD +
+      ' | P&L:' + pnlPct + '% (USD' + pnlUSD + ')' +
+      ' | var_hoy:' + (c.change24h?.toFixed(2)||0) + '%' +
+      athStr + ']';
+  }).join('
+');
 
   const today = new Date().toLocaleDateString('es-AR');
-  const prompt = `Sos un analista financiero senior especializado en mercados argentinos y crypto. Fecha de hoy: ${today}. USD oficial: $${usdArs}.
+  const prompt = `Sos un analista financiero senior especializado en mercados argentinos y crypto. Fecha: ${today}. USD oficial: $${usdArs}.
 
-DATOS REALES DE LA CARTERA (usá EXACTAMENTE estos números):
-ACCIONES/BONOS: ${stocksData || 'ninguna'}
-CRYPTO: ${cryptoData || 'ninguna'}
+CARTERA REAL CON CONTEXTO DE MERCADO:
+ACCIONES/BONOS:
+${stocksData || 'ninguna'}
 
-Para cada activo analizá basándote en estos datos reales y generá un JSON array con:
+CRYPTO:
+${cryptoData || 'ninguna'}
+
+INSTRUCCIONES: Analizá cada activo considerando:
+1. El P&L real tanto en pesos como en dólares (son diferentes por la variación del tipo de cambio)
+2. La distancia al máximo histórico de 52 semanas (dist_ATH) - si está muy cerca del ATH hay que ser cauteloso
+3. La tendencia reciente (var_semana, var_mes) - no solo el P&L total
+4. El contexto macro argentino actual (inflación, tipo de cambio, riesgo país)
+5. Para bonos: considerá duration, spread y riesgo soberano
+6. Para crypto: considerá el ciclo del mercado y dominancia de BTC
+
+Generá un JSON array. Cada objeto:
 - ticker (string)
-- titulo (análisis en 8 palabras mencionando el P&L real)  
+- titulo (8 palabras con el insight principal)
 - signal ("COMPRAR"|"VENDER"|"MANTENER"|"ACUMULAR")
-- conviccion (1-10)
-- analisis (3 oraciones: 1ra menciona el P&L% real, 2da el contexto del activo hoy, 3ra recomendación concreta)
-- precio_objetivo (precio realista basado en precio actual)
-- potencial ("+X%" o "-X%" basado en precio actual vs objetivo)
+- conviccion (1-10, sé conservador)
+- analisis (4 oraciones: P&L real en ARS y USD, posición vs ATH, tendencia reciente, recomendación concreta)
+- precio_objetivo (precio concreto realista)
+- potencial ("+X%" o "-X%")
 - horizonte ("corto plazo"|"mediano plazo"|"largo plazo")
-- riesgos (1 oración con riesgo específico del activo)
+- riesgos (riesgo específico y concreto del activo)
 
-SOLO JSON array sin markdown ni texto extra.`;
+SOLO JSON array, sin markdown.`;
 
   return <AISection prompt={prompt} emptyMsg="No se pudo generar el análisis." />;
 }
@@ -690,7 +764,7 @@ export default function App() {
   function openEdit(type,item) { setForm({...item}); setModal({type,item}); }
   function saveEdit() {
     if (modal.type==="stock") {
-      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion",diasCartera:+form.diasCartera||s.diasCartera||null}:s);
+      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion",diasCartera:+form.diasCartera||s.diasCartera||null,dolarCompra:+form.dolarCompra||s.dolarCompra||null}:s);
       setStocks(n); persist(n,null);
     } else {
       const n=crypto.map(c=>c.id===form.id?{...form,amount:+form.amount,avgBuyUSD:+form.avgBuyUSD,priceUSD:c.priceUSD,change24h:c.change24h}:c);
@@ -699,7 +773,7 @@ export default function App() {
     setModal(null);
   }
   function addStock() {
-    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion",diasCartera:+form.diasCartera||null};
+    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion",diasCartera:+form.diasCartera||null,dolarCompra:+form.dolarCompra||null};
     const n=[...stocks, newItem];
     setStocks(n);
     // Save to localStorage immediately
@@ -859,6 +933,7 @@ export default function App() {
           </div>
           <Field label="Cantidad" value={form.qty} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
+          <Field label="Dólar al momento de compra (ej: 1050)" value={form.dolarCompra||""} onChange={v=>setForm({...form,dolarCompra:v})} placeholder="1050" type="number"/>
           <Field label="Días en cartera (ej: 45)" value={form.diasCartera||""} onChange={v=>setForm({...form,diasCartera:v})} placeholder="45" type="number"/>
           <button onClick={saveEdit} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Guardar</button>
         </Modal>
@@ -884,6 +959,7 @@ export default function App() {
           <Field label="Nombre" value={form.name||""} onChange={v=>setForm({...form,name:v})} placeholder="Grupo Galicia"/>
           <Field label="Cantidad" value={form.qty||""} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy||""} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
+          <Field label="Dólar al momento de compra (ej: 1050)" value={form.dolarCompra||""} onChange={v=>setForm({...form,dolarCompra:v})} placeholder="1050" type="number"/>
           <Field label="Días en cartera (ej: 45)" value={form.diasCartera||""} onChange={v=>setForm({...form,diasCartera:v})} placeholder="45" type="number"/>
           <button onClick={addStock} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Agregar</button>
         </Modal>

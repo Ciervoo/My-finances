@@ -488,7 +488,8 @@ export default function App() {
           body: JSON.stringify({
             tickers: stocks.map(s => ({
               ticker: s.ticker,
-              mercado: s.ticker === 'MELI' ? 'nYSE' : 'bCBA'
+              tipo: s.tipo || 'accion',
+              mercado: (s.tipo === 'cedear' || s.ticker === 'MELI') ? 'nYSE' : 'bCBA'
             }))
           })
         });

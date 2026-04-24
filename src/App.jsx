@@ -346,10 +346,10 @@ export default function App() {
   const myTickers = [...stocks.map(s=>s.ticker),...crypto.map(c=>c.symbol)];
 
   // ── Portfolio state string for AI ────────────────────────────────────────
-  const portfolioStr = [
+  const portfolioStr = stocks && crypto ? [
     "ACCIONES: " + stocks.map(s=>`${s.ticker}(PM:$${s.avgBuy},actual:$${s.price||"N/A"},qty:${s.qty})`).join(", "),
     "CRYPTO: "   + crypto.map(c=>`${c.symbol}(PM:$${c.avgBuyUSD},actual:$${c.priceUSD||"N/A"},cantidad:${c.amount})`).join(", ")
-  ].join(" | ");
+  ].join(" | ") : "";
 
   // ── Fetch Binance real portfolio ────────────────────────────────────────
   const fetchBinancePortfolio = useCallback(async () => {
@@ -378,18 +378,15 @@ export default function App() {
       priceMap['FDUSD'] = 1;
 
       // Build crypto array from real balances
-      const newCrypto = data.balances.map((b, i) => {
-        const existing = crypto.find(c => c.symbol === b.symbol);
-        return {
-          id: existing?.id || 'b' + i,
-          symbol: b.symbol,
-          name: b.symbol,
-          amount: b.amount,
-          avgBuyUSD: existing?.avgBuyUSD || priceMap[b.symbol] || 0,
-          priceUSD: priceMap[b.symbol] || existing?.priceUSD || null,
-          change24h: existing?.change24h || null
-        };
-      });
+      const newCrypto = data.balances.map((b, i) => ({
+        id: 'b' + b.symbol,
+        symbol: b.symbol,
+        name: b.symbol,
+        amount: b.amount,
+        avgBuyUSD: priceMap[b.symbol] || 0,
+        priceUSD: priceMap[b.symbol] || null,
+        change24h: null
+      }));
 
       setCrypto(newCrypto);
       await persist(null, newCrypto);
@@ -397,7 +394,7 @@ export default function App() {
     } catch (e) {
       console.error('fetchBinancePortfolio error:', e);
     }
-  }, [crypto, persist]);
+  }, [persist]);
 
   // Fetch Binance portfolio on mount
   useEffect(() => {

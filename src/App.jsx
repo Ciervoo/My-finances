@@ -155,13 +155,14 @@ function AISection({ prompt, color, emptyMsg }) {
   useEffect(() => {
     if (fetched.current) return;
     fetched.current = true;
-    fetch("/api/ai", {
+    fetch("https://api.anthropic.com/v1/messages", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1000, messages:[{role:"user",content:prompt}] })
     })
     .then(r=>r.json())
     .then(d=>{
-      setData(d.result || []);
+      const text = d.content?.find(b=>b.type==="text")?.text||"[]";
+      setData(JSON.parse(text.replace(/```json|```/g,"").trim()));
     })
     .catch(()=>setError(true))
     .finally(()=>setLoading(false));
@@ -230,7 +231,7 @@ export default function App() {
   const [modal,    setModal]    = useState(null);
   const [form,     setForm]     = useState({});
   const [saved,    setSaved]    = useState(false);
-  const [apiKey,   setApiKey]   = useState("");
+  const [apiKey,   setApiKey]   = useState("connected");
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [lastUpdate,    setLastUpdate]    = useState(null);
   const [showApiModal,  setShowApiModal]  = useState(false);
@@ -350,6 +351,59 @@ export default function App() {
     "CRYPTO: "   + crypto.map(c=>`${c.symbol}(PM:$${c.avgBuyUSD},actual:$${c.priceUSD||"N/A"},cantidad:${c.amount})`).join(", ")
   ].join(" | ");
 
+  // ── Fetch Binance real portfolio ────────────────────────────────────────
+  const fetchBinancePortfolio = useCallback(async () => {
+    try {
+      const res = await fetch('/api/binance');
+      const data = await res.json();
+      if (data.error || !data.balances?.length) return;
+
+      // Get current prices for all symbols
+      const symbols = data.balances
+        .filter(b => b.symbol !== 'USDT' && b.symbol !== 'BUSD' && b.symbol !== 'FDUSD')
+        .map(b => b.symbol + 'USDT');
+
+      const priceRes = await Promise.allSettled(
+        symbols.map(s => fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${s}`).then(r => r.json()))
+      );
+
+      const priceMap = {};
+      symbols.forEach((s, i) => {
+        if (priceRes[i].status === 'fulfilled' && priceRes[i].value.price) {
+          priceMap[s.replace('USDT', '')] = parseFloat(priceRes[i].value.price);
+        }
+      });
+      priceMap['USDT'] = 1;
+      priceMap['BUSD'] = 1;
+      priceMap['FDUSD'] = 1;
+
+      // Build crypto array from real balances
+      const newCrypto = data.balances.map((b, i) => {
+        const existing = crypto.find(c => c.symbol === b.symbol);
+        return {
+          id: existing?.id || 'b' + i,
+          symbol: b.symbol,
+          name: b.symbol,
+          amount: b.amount,
+          avgBuyUSD: existing?.avgBuyUSD || priceMap[b.symbol] || 0,
+          priceUSD: priceMap[b.symbol] || existing?.priceUSD || null,
+          change24h: existing?.change24h || null
+        };
+      });
+
+      setCrypto(newCrypto);
+      await persist(null, newCrypto);
+      console.log('Binance portfolio loaded:', newCrypto.length, 'assets');
+    } catch (e) {
+      console.error('fetchBinancePortfolio error:', e);
+    }
+  }, [crypto, persist]);
+
+  // Fetch Binance portfolio on mount
+  useEffect(() => {
+    if (stocks && crypto) fetchBinancePortfolio();
+  }, [!!stocks, !!crypto]);
+
   // ── CRUD ─────────────────────────────────────────────────────────────────
   function delStock(id)  { const n=stocks.filter(s=>s.id!==id); setStocks(n); persist(n,null); }
   function delCrypto(id) { const n=crypto.filter(c=>c.id!==id); setCrypto(n); persist(null,n); }
@@ -390,8 +444,8 @@ export default function App() {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:2}}>
           <div style={{fontSize:9,color:"#2a2a2a",letterSpacing:3,textTransform:"uppercase"}}>PORTFOLIO · SANTINO</div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <button onClick={()=>setShowApiModal(true)} style={{background:"rgba(240,185,11,0.1)",border:"1px solid rgba(240,185,11,0.2)",color:"#f0b90b",fontSize:9,fontWeight:700,padding:"4px 10px",borderRadius:6,cursor:"pointer",letterSpacing:1}}>
-              {apiKey?"BINANCE ✓":"+ BINANCE API"}
+            <button onClick={fetchBinancePortfolio} style={{background:"rgba(240,185,11,0.1)",border:"1px solid rgba(240,185,11,0.2)",color:"#f0b90b",fontSize:9,fontWeight:700,padding:"4px 10px",borderRadius:6,cursor:"pointer",letterSpacing:1}}>
+              ⟳ BINANCE
             </button>
             <button onClick={fetchPrices} disabled={loadingPrices} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",color:loadingPrices?"#333":"#888",fontSize:9,fontWeight:700,padding:"4px 10px",borderRadius:6,cursor:"pointer",letterSpacing:1}}>
               {loadingPrices?"…":"↻ ACT."}

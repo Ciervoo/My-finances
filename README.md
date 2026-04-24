@@ -15,3 +15,4 @@ npm run dev
 2. Conectar en vercel.com → New Project
 3. Framework: Vite
 4. Deploy
+# v3

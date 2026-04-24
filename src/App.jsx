@@ -313,7 +313,7 @@ export default function App() {
       await persist(updatedStocks, updatedCrypto);
     } catch(e){ console.error(e); }
     setLoadingPrices(false);
-  },[stocks,crypto,persist]);
+  };
 
   // Fetch prices on mount and every 60s
   useEffect(()=>{

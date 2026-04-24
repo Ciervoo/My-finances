@@ -275,8 +275,40 @@ function NewsSection({ portfolioStr, tickers }) {
   );
 }
 
-function AnalisisSection({ portfolioStr }) {
-  const prompt = `Sos un analista financiero senior. Tenés estos datos REALES de la cartera del inversor: ${portfolioStr}. Usá SOLO estos precios reales para tu análisis. Para cada activo generá un JSON array con: ticker(o symbol), titulo(análisis concreto basado en precio real, máx 10 palabras), signal("COMPRAR","VENDER","MANTENER","ACUMULAR"), conviccion(1-10 basado en datos reales), analisis(3-4 oraciones usando los precios reales provistos, mencioná % de ganancia/pérdida real, contexto macro argentino actual), precio_objetivo(precio objetivo realista en la moneda del activo), potencial(upside/downside real como "+X%" o "-X%"), horizonte("corto plazo","mediano plazo","largo plazo"), riesgos(1 oración con riesgo concreto). SOLO JSON array sin markdown.`;
+function AnalisisSection({ stocks, crypto, usdArs }) {
+  // Build detailed portfolio data with real P&L
+  const stocksData = stocks.filter(s => s.price).map(s => {
+    const pnlPct = ((s.price - s.avgBuy) / s.avgBuy * 100).toFixed(1);
+    const pnlARS = ((s.price - s.avgBuy) * s.qty).toFixed(0);
+    return `${s.ticker}(tipo:${s.tipo||"accion"}, precio_actual:$${s.price.toFixed(2)}, precio_compra:$${s.avgBuy}, cantidad:${s.qty}, P&L:${pnlPct}%, P&L_ARS:$${pnlARS}, var_dia:${s.change24h?.toFixed(2)||0}%)`;
+  }).join(' | ');
+
+  const cryptoData = crypto.filter(c => c.priceUSD).map(c => {
+    const pnlPct = ((c.priceUSD - c.avgBuyUSD) / c.avgBuyUSD * 100).toFixed(1);
+    const pnlUSD = ((c.priceUSD - c.avgBuyUSD) * c.amount).toFixed(2);
+    return `${c.symbol}(precio_actual:USD${c.priceUSD.toFixed(2)}, precio_compra:USD${c.avgBuyUSD}, cantidad:${c.amount}, P&L:${pnlPct}%, P&L_USD:$${pnlUSD}, var_dia:${c.change24h?.toFixed(2)||0}%)`;
+  }).join(' | ');
+
+  const today = new Date().toLocaleDateString('es-AR');
+  const prompt = `Sos un analista financiero senior especializado en mercados argentinos y crypto. Fecha de hoy: ${today}. USD oficial: $${usdArs}.
+
+DATOS REALES DE LA CARTERA (usá EXACTAMENTE estos números):
+ACCIONES/BONOS: ${stocksData || 'ninguna'}
+CRYPTO: ${cryptoData || 'ninguna'}
+
+Para cada activo analizá basándote en estos datos reales y generá un JSON array con:
+- ticker (string)
+- titulo (análisis en 8 palabras mencionando el P&L real)  
+- signal ("COMPRAR"|"VENDER"|"MANTENER"|"ACUMULAR")
+- conviccion (1-10)
+- analisis (3 oraciones: 1ra menciona el P&L% real, 2da el contexto del activo hoy, 3ra recomendación concreta)
+- precio_objetivo (precio realista basado en precio actual)
+- potencial ("+X%" o "-X%" basado en precio actual vs objetivo)
+- horizonte ("corto plazo"|"mediano plazo"|"largo plazo")
+- riesgos (1 oración con riesgo específico del activo)
+
+SOLO JSON array sin markdown ni texto extra.`;
+
   return <AISection prompt={prompt} emptyMsg="No se pudo generar el análisis." />;
 }
 
@@ -751,7 +783,7 @@ export default function App() {
               <div style={{width:5,height:5,borderRadius:"50%",background:"#c084fc"}}/>especialista
             </div>
           </div>
-          <AnalisisSection portfolioStr={portfolioStr}/>
+          <AnalisisSection stocks={stocks} crypto={crypto} usdArs={usdArs}/>
         </div>
       )}
 

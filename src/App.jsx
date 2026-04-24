@@ -293,9 +293,8 @@ function AnalisisSection({ stocks, crypto, usdArs }) {
   const cryptoData = crypto.filter(c => c.priceUSD && c.avgBuyUSD).map(c => {
     const pnlPct = ((c.priceUSD - c.avgBuyUSD) / c.avgBuyUSD * 100).toFixed(1);
     const pnlUSD = ((c.priceUSD - c.avgBuyUSD) * c.amount).toFixed(2);
-    return `${c.symbol}[precio_HOY:USD${c.priceUSD.toFixed(2)} | mi_precio_compra:USD${c.avgBuyUSD} | ganancia_perdida:${pnlPct}% | P&L_dolares:USD${pnlUSD} | variacion_hoy:${c.change24h?.toFixed(2)||0}%]`;
-  }).join('
-');
+    return c.symbol + '[precio_HOY:USD' + c.priceUSD.toFixed(2) + ' | mi_precio_compra:USD' + c.avgBuyUSD + ' | ganancia_perdida:' + pnlPct + '% | P&L_dolares:USD' + pnlUSD + ' | variacion_hoy:' + (c.change24h?.toFixed(2)||0) + '%]';
+  }).join('\n');
 
   const today = new Date().toLocaleDateString('es-AR');
   const prompt = `Sos un analista financiero senior especializado en mercados argentinos y crypto. Fecha de hoy: ${today}. USD oficial: $${usdArs}.

@@ -63,8 +63,23 @@ async function getPrice(token, ticker, mercado = 'bCBA') {
         null;
 
       if (price !== null) {
-        console.log(`${ticker} price from IOL:`, price, 'change:', change);
-        return { ticker, price, change24h: change, currency: data.moneda || 'ARS' };
+        // Try to get USD price (CCL) from IOL
+        let priceUSD = null;
+        try {
+          const usdFields = ['precioUltimoDolares', 'ultimoPrecioDolares', 'ultimoDolares', 'precioD'];
+          for (const f of usdFields) {
+            if (data[f] && data[f] > 0) { priceUSD = data[f]; break; }
+          }
+          // Also check cotizacion subobject
+          if (!priceUSD && data.cotizacion) {
+            for (const f of usdFields) {
+              if (data.cotizacion[f] && data.cotizacion[f] > 0) { priceUSD = data.cotizacion[f]; break; }
+            }
+          }
+        } catch {}
+
+        console.log(`${ticker} price: ARS${price}${priceUSD ? ' USD'+priceUSD : ''} change: ${change}`);
+        return { ticker, price, priceUSD, change24h: change, currency: data.moneda || 'ARS' };
       }
     } catch (e) {
       console.error(`Endpoint error for ${ticker}:`, e.message);

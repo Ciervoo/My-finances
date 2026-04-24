@@ -79,7 +79,10 @@ function StockRow({ s, mode, onEdit, onDelete, loading }) {
       <div style={{width:32,height:32,borderRadius:7,flexShrink:0,background:"linear-gradient(135deg,#1a6ef7,#60a5fa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff"}}>{s.ticker.slice(0,4)}</div>
       <div onClick={()=>onEdit(s)} style={{cursor:"pointer"}}>
         <div style={{fontSize:13,fontWeight:700,color:"#efefef"}}>{s.ticker}{s.change24h!==null&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:s.change24h>=0?"#00dc82":"#ff4646"}}>{s.change24h>=0?"+":""}{s.change24h?.toFixed(2)}%</span>}</div>
-        <div style={{fontSize:10,color:"#444"}}>{s.qty} acc · PM ${fmt(s.avgBuy,0)}</div>
+        <div style={{fontSize:10,color:"#444"}}>
+          {s.qty} · PM ${fmt(s.avgBuy,0)}
+          {s.fechaCompra && <span style={{marginLeft:6,color:"#333"}}>· {Math.floor((Date.now()-new Date(s.fechaCompra))/86400000)}d</span>}
+        </div>
       </div>
       <div style={{textAlign:"right"}}>
         <div style={{fontSize:12,fontWeight:700,color:"#fff",fontFamily:"monospace"}}>{loading&&!hasPrice?<Spinner/>:val}</div>
@@ -277,17 +280,21 @@ function NewsSection({ portfolioStr, tickers }) {
 
 function AnalisisSection({ stocks, crypto, usdArs }) {
   // Build detailed portfolio data with real P&L
-  const stocksData = stocks.filter(s => s.price).map(s => {
+  const stocksData = stocks.filter(s => s.price && s.avgBuy).map(s => {
     const pnlPct = ((s.price - s.avgBuy) / s.avgBuy * 100).toFixed(1);
     const pnlARS = ((s.price - s.avgBuy) * s.qty).toFixed(0);
-    return `${s.ticker}(tipo:${s.tipo||"accion"}, precio_actual:$${s.price.toFixed(2)}, precio_compra:$${s.avgBuy}, cantidad:${s.qty}, P&L:${pnlPct}%, P&L_ARS:$${pnlARS}, var_dia:${s.change24h?.toFixed(2)||0}%)`;
-  }).join(' | ');
+    const dias = s.fechaCompra ? Math.floor((Date.now()-new Date(s.fechaCompra))/86400000) : null;
+    const rendAnual = dias && dias > 0 ? ((Math.pow(1 + (s.price-s.avgBuy)/s.avgBuy, 365/dias) - 1) * 100).toFixed(1) : null;
+    return `${s.ticker}[tipo:${s.tipo||"accion"} | precio_HOY:ARS${s.price.toFixed(2)} | mi_precio_compra:ARS${s.avgBuy} | ganancia_perdida:${pnlPct}% | P&L_pesos:ARS${pnlARS} | variacion_hoy:${s.change24h?.toFixed(2)||0}%${dias?` | dias_en_cartera:${dias} | rend_anualizado:${rendAnual}%`:''}]`;
+  }).join('
+');
 
-  const cryptoData = crypto.filter(c => c.priceUSD).map(c => {
+  const cryptoData = crypto.filter(c => c.priceUSD && c.avgBuyUSD).map(c => {
     const pnlPct = ((c.priceUSD - c.avgBuyUSD) / c.avgBuyUSD * 100).toFixed(1);
     const pnlUSD = ((c.priceUSD - c.avgBuyUSD) * c.amount).toFixed(2);
-    return `${c.symbol}(precio_actual:USD${c.priceUSD.toFixed(2)}, precio_compra:USD${c.avgBuyUSD}, cantidad:${c.amount}, P&L:${pnlPct}%, P&L_USD:$${pnlUSD}, var_dia:${c.change24h?.toFixed(2)||0}%)`;
-  }).join(' | ');
+    return `${c.symbol}[precio_HOY:USD${c.priceUSD.toFixed(2)} | mi_precio_compra:USD${c.avgBuyUSD} | ganancia_perdida:${pnlPct}% | P&L_dolares:USD${pnlUSD} | variacion_hoy:${c.change24h?.toFixed(2)||0}%]`;
+  }).join('
+');
 
   const today = new Date().toLocaleDateString('es-AR');
   const prompt = `Sos un analista financiero senior especializado en mercados argentinos y crypto. Fecha de hoy: ${today}. USD oficial: $${usdArs}.
@@ -530,9 +537,11 @@ export default function App() {
           updatedStocks = stocks.map(s => {
             const p = iolData.prices[s.ticker];
             if (p && p.price) return {...s, price: p.price, change24h: p.change24h};
-            return s;
+            return s; // Keep existing data if no price found
           });
         }
+        // CRITICAL: Always save back to localStorage after price update
+        localStorage.setItem("portfolio_stocks", JSON.stringify(updatedStocks));
       } catch(e) { console.error('IOL fetch error:', e); }
       // Only update crypto from prices if binance portfolio loaded it first
       // (update prices on existing items, don't replace)
@@ -645,7 +654,7 @@ export default function App() {
   function openEdit(type,item) { setForm({...item}); setModal({type,item}); }
   function saveEdit() {
     if (modal.type==="stock") {
-      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion"}:s);
+      const n=stocks.map(s=>s.id===form.id?{...form,qty:+form.qty,avgBuy:+form.avgBuy,price:s.price,change24h:s.change24h,tipo:form.tipo||s.tipo||"accion",fechaCompra:form.fechaCompra||s.fechaCompra||null}:s);
       setStocks(n); persist(n,null);
     } else {
       const n=crypto.map(c=>c.id===form.id?{...form,amount:+form.amount,avgBuyUSD:+form.avgBuyUSD,priceUSD:c.priceUSD,change24h:c.change24h}:c);
@@ -654,7 +663,7 @@ export default function App() {
     setModal(null);
   }
   function addStock() {
-    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion"};
+    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion",fechaCompra:form.fechaCompra||null};
     const n=[...stocks, newItem];
     setStocks(n);
     // Save immediately and verify
@@ -809,6 +818,7 @@ export default function App() {
           </div>
           <Field label="Cantidad" value={form.qty} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
+          <Field label="Fecha de compra (opcional)" value={form.fechaCompra||""} onChange={v=>setForm({...form,fechaCompra:v})} placeholder="2024-01-15" type="date"/>
           <button onClick={saveEdit} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Guardar</button>
         </Modal>
       )}
@@ -833,6 +843,7 @@ export default function App() {
           <Field label="Nombre" value={form.name||""} onChange={v=>setForm({...form,name:v})} placeholder="Grupo Galicia"/>
           <Field label="Cantidad" value={form.qty||""} onChange={v=>setForm({...form,qty:v})} type="number"/>
           <Field label="Precio promedio ARS" value={form.avgBuy||""} onChange={v=>setForm({...form,avgBuy:v})} type="number"/>
+          <Field label="Fecha de compra (opcional)" value={form.fechaCompra||""} onChange={v=>setForm({...form,fechaCompra:v})} placeholder="2024-01-15" type="date"/>
           <button onClick={addStock} style={{width:"100%",padding:"13px",borderRadius:9,border:"none",background:"#1a6ef7",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:6}}>Agregar</button>
         </Modal>
       )}

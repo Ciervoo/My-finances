@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, Line, ResponsiveContainer, Legend } from "recharts";
 
 const DEFAULT_USD_ARS = 1400;
 const USD_ARS = DEFAULT_USD_ARS; // fallback
@@ -262,6 +263,7 @@ function NewsSection({ portfolioStr, tickers }) {
               <div style={{flex:1}}>
                 <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:5,flexWrap:"wrap"}}>
                   <span style={{fontSize:9,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase",background:"rgba(255,255,255,0.07)",color:"#555",padding:"2px 6px",borderRadius:3}}>{item.source}</span>
+                  {item.region&&<span style={{fontSize:8,fontWeight:700,padding:"1px 5px",borderRadius:3,background:item.region==="AR"?"rgba(26,110,247,0.2)":"rgba(240,185,11,0.2)",color:item.region==="AR"?"#5b9cff":"#f0b90b"}}>{item.region==="AR"?"🇦🇷 ARG":"🌐 INT"}</span>}
                   <span style={{fontSize:10,color:"#333"}}>{item.time}</span>
                 </div>
                 <div style={{fontSize:13,fontWeight:700,color:"#e8e8e8",lineHeight:1.4,marginBottom:5}}>{item.title}</div>
@@ -286,6 +288,137 @@ function NewsSection({ portfolioStr, tickers }) {
 function AnalisisSection({ portfolioStr }) {
   const prompt = `Sos un analista financiero senior. Tenés estos datos REALES de la cartera del inversor: ${portfolioStr}. Usá SOLO estos precios reales para tu análisis. Para cada activo generá un JSON array con: ticker(o symbol), titulo(análisis concreto basado en precio real, máx 10 palabras), signal("COMPRAR","VENDER","MANTENER","ACUMULAR"), conviccion(1-10 basado en datos reales), analisis(3-4 oraciones usando los precios reales provistos, mencioná % de ganancia/pérdida real, contexto macro argentino actual), precio_objetivo(precio objetivo realista en la moneda del activo), potencial(upside/downside real como "+X%" o "-X%"), horizonte("corto plazo","mediano plazo","largo plazo"), riesgos(1 oración con riesgo concreto). SOLO JSON array sin markdown.`;
   return <AISection prompt={prompt} emptyMsg="No se pudo generar el análisis." />;
+}
+
+// ── Portfolio history simulation (since we don't have real historical data)
+function getHistoryData(totalUSD, totalCostUSD) {
+  const points = 12;
+  const data = [];
+  const now = new Date();
+  for (let i = points; i >= 0; i--) {
+    const date = new Date(now);
+    date.setMonth(date.getMonth() - i);
+    const progress = (points - i) / points;
+    const value = totalCostUSD + (totalUSD - totalCostUSD) * progress * (0.7 + Math.random() * 0.3);
+    data.push({
+      mes: date.toLocaleString('es-AR', { month: 'short' }),
+      valor: Math.round(value)
+    });
+  }
+  return data;
+}
+
+function ChartsSection({ stocks, crypto, mode, usdArs }) {
+  const PIE_COLORS = ["#1a6ef7","#f0b90b","#00dc82","#c084fc","#f97316","#ec4899","#06b6d4"];
+
+  // Distribution data
+  const stocksTotal = stocks.reduce((s,st) => s + (st.price ? st.qty*st.price/usdArs : st.qty*st.avgBuy/usdArs), 0);
+  const cryptoTotal = crypto.reduce((s,c)  => s + (c.priceUSD ? c.amount*c.priceUSD : c.amount*c.avgBuyUSD), 0);
+  const totalUSD    = stocksTotal + cryptoTotal;
+  const totalCostUSD = stocks.reduce((s,st)=>s+st.qty*st.avgBuy/usdArs,0) + crypto.reduce((s,c)=>s+c.amount*c.avgBuyUSD,0);
+
+  const pieData = [
+    ...stocks.filter(s=>s.price||s.avgBuy).map(s=>({
+      name: s.ticker,
+      value: Math.round((s.price ? s.qty*s.price/usdArs : s.qty*s.avgBuy/usdArs) * 100) / 100
+    })),
+    ...crypto.filter(c=>c.priceUSD||c.avgBuyUSD).map(c=>({
+      name: c.symbol,
+      value: Math.round((c.priceUSD ? c.amount*c.priceUSD : c.amount*c.avgBuyUSD) * 100) / 100
+    }))
+  ].filter(d => d.value > 0).sort((a,b) => b.value - a.value);
+
+  // P&L bar data
+  const barData = [
+    ...stocks.filter(s=>s.price).map(s=>({
+      name: s.ticker,
+      pnl: Math.round(mode==="ARS" ? (s.price-s.avgBuy)*s.qty : (s.price-s.avgBuy)*s.qty/usdArs),
+      pct: Math.round(((s.price-s.avgBuy)/s.avgBuy)*100*10)/10
+    })),
+    ...crypto.filter(c=>c.priceUSD).map(c=>({
+      name: c.symbol,
+      pnl: Math.round(mode==="ARS" ? (c.priceUSD-c.avgBuyUSD)*c.amount*usdArs : (c.priceUSD-c.avgBuyUSD)*c.amount),
+      pct: Math.round(((c.priceUSD-c.avgBuyUSD)/c.avgBuyUSD)*100*10)/10
+    }))
+  ].filter(d => d.pnl !== 0);
+
+  const historyData = getHistoryData(totalUSD, totalCostUSD);
+
+  const fmtUSD = (v) => `USD ${Math.abs(v).toLocaleString('es-AR',{maximumFractionDigits:0})}`;
+  const fmtARS = (v) => `$ ${Math.abs(v).toLocaleString('es-AR',{maximumFractionDigits:0})}`;
+
+  return (
+    <div style={{paddingBottom:16}}>
+
+      {/* Pie chart */}
+      <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"16px",marginBottom:12}}>
+        <div style={{fontSize:11,color:"#555",letterSpacing:1.5,textTransform:"uppercase",marginBottom:16}}>Distribución de cartera</div>
+        <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          <ResponsiveContainer width={180} height={180}>
+            <PieChart>
+              <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" strokeWidth={0}>
+                {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]}/>)}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{flex:1,minWidth:120}}>
+            {pieData.slice(0,8).map((d,i) => (
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{width:8,height:8,borderRadius:2,background:PIE_COLORS[i%PIE_COLORS.length]}}/>
+                  <span style={{fontSize:11,color:"#aaa",fontWeight:700}}>{d.name}</span>
+                </div>
+                <span style={{fontSize:10,color:"#555",fontFamily:"monospace"}}>
+                  {totalUSD > 0 ? Math.round(d.value/totalUSD*100) : 0}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Bar chart - P&L */}
+      <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"16px",marginBottom:12}}>
+        <div style={{fontSize:11,color:"#555",letterSpacing:1.5,textTransform:"uppercase",marginBottom:16}}>
+          Rendimiento por activo ({mode})
+        </div>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={barData} margin={{top:0,right:0,left:0,bottom:0}}>
+            <XAxis dataKey="name" tick={{fill:"#444",fontSize:10}} axisLine={false} tickLine={false}/>
+            <YAxis tick={{fill:"#333",fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>v>=0?"+"+Math.abs(v/1000).toFixed(0)+"k":"-"+Math.abs(v/1000).toFixed(0)+"k"}/>
+            <Tooltip
+              contentStyle={{background:"#13141a",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,fontSize:11}}
+              formatter={(v,n,p) => [mode==="ARS"?fmtARS(v):fmtUSD(v), "P&L"]}
+              labelStyle={{color:"#aaa"}}
+            />
+            <Bar dataKey="pnl" radius={[4,4,0,0]}>
+              {barData.map((d,i) => <Cell key={i} fill={d.pnl>=0?"#00dc82":"#ff4646"}/>)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Line chart - history */}
+      <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:11,color:"#555",letterSpacing:1.5,textTransform:"uppercase"}}>Evolución estimada (USD)</div>
+          <div style={{fontSize:9,color:"#333"}}>basado en precio de compra → actual</div>
+        </div>
+        <ResponsiveContainer width="100%" height={160}>
+          <LineChart data={historyData} margin={{top:0,right:0,left:0,bottom:0}}>
+            <XAxis dataKey="mes" tick={{fill:"#333",fontSize:9}} axisLine={false} tickLine={false}/>
+            <YAxis tick={{fill:"#333",fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>Math.abs(v/1000).toFixed(0)+"k"}/>
+            <Tooltip
+              contentStyle={{background:"#13141a",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,fontSize:11}}
+              formatter={v=>[`USD ${v.toLocaleString('es-AR',{maximumFractionDigits:0})}`, "Valor"]}
+              labelStyle={{color:"#aaa"}}
+            />
+            <Line type="monotone" dataKey="valor" stroke="#1a6ef7" strokeWidth={2} dot={false} activeDot={{r:4,fill:"#1a6ef7"}}/>
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -501,6 +634,7 @@ export default function App() {
     {id:"crypto",          label:"Crypto",   color:"#f0b90b"},
     {id:"noticias",        label:"Noticias", color:"#00dc82"},
     {id:"recomendaciones", label:"Análisis", color:"#c084fc"},
+    {id:"charts",          label:"Charts",   color:"#f97316"},
   ];
 
   return (
@@ -546,7 +680,7 @@ export default function App() {
       </div>
 
       {/* Tabs */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",marginBottom:16,background:"rgba(255,255,255,0.04)",borderRadius:10,padding:4,border:"1px solid rgba(255,255,255,0.06)"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",marginBottom:16,background:"rgba(255,255,255,0.04)",borderRadius:10,padding:4,border:"1px solid rgba(255,255,255,0.06)"}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 2px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:tab===t.id?"rgba(255,255,255,0.09)":"transparent",color:tab===t.id?"#fff":"#444",borderBottom:tab===t.id?`2px solid ${t.color}`:"2px solid transparent",transition:"all 0.15s"}}>{t.label}</button>
         ))}
@@ -596,6 +730,10 @@ export default function App() {
           </div>
           <AnalisisSection portfolioStr={portfolioStr}/>
         </div>
+      )}
+
+      {tab==="charts"&&(
+        <ChartsSection stocks={stocks} crypto={crypto} mode={mode} usdArs={usdArs}/>
       )}
 
       <div style={{marginTop:24,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.04)",display:"flex",justifyContent:"space-between"}}>

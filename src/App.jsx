@@ -447,11 +447,17 @@ export default function App() {
   // ── Persist ──────────────────────────────────────────────────────────────
   function persist(ns, nc) {
     try {
-      if (ns) localStorage.setItem("portfolio_stocks", JSON.stringify(ns));
-      if (nc) localStorage.setItem("portfolio_crypto",  JSON.stringify(nc));
+      if (ns !== null && ns !== undefined) {
+        localStorage.setItem("portfolio_stocks", JSON.stringify(ns));
+        console.log("Saved stocks:", ns.length);
+      }
+      if (nc !== null && nc !== undefined) {
+        localStorage.setItem("portfolio_crypto", JSON.stringify(nc));
+        console.log("Saved crypto:", nc.length);
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
-    } catch {}
+    } catch(e) { console.error("persist error:", e); }
   }
 
   // ── Fetch real prices ────────────────────────────────────────────────────
@@ -519,8 +525,10 @@ export default function App() {
         return;
       }
 
+      // Filter out fiat and stablecoins that aren't tradeable pairs
+      const SKIP = ["USDT","BUSD","FDUSD","ARS","USD","EUR","BRL","LDBNB","LDBTC","LDETH","LDUSDT"];
       const symbols = data.balances
-        .filter(b => !["USDT","BUSD","FDUSD"].includes(b.symbol))
+        .filter(b => !SKIP.includes(b.symbol))
         .map(b => b.symbol + "USDT");
 
       const priceRes = await Promise.allSettled(
@@ -535,9 +543,10 @@ export default function App() {
       });
 
       // Merge with existing crypto — preserve avgBuyUSD if already set
+      const SKIP_ASSETS = ["USDT","BUSD","FDUSD","ARS","USD","EUR","BRL","LDBNB","LDBTC","LDETH","LDUSDT"];
       setCrypto(prev => {
         const existing = prev || [];
-        const newItems = data.balances.map(b => {
+        const newItems = data.balances.filter(b => !SKIP_ASSETS.includes(b.symbol)).map(b => {
           const old = existing.find(c => c.symbol === b.symbol);
           return {
             id: old?.id || "b" + b.symbol,
@@ -612,8 +621,15 @@ export default function App() {
     setModal(null);
   }
   function addStock() {
-    const n=[...stocks,{id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion"}];
-    setStocks(n); persist(n,null); setModal(null); setTimeout(fetchPrices,500);
+    const newItem = {id:"s"+Date.now(),ticker:form.ticker?.toUpperCase()||"",name:form.name||"",qty:+form.qty||0,avgBuy:+form.avgBuy||0,price:null,change24h:null,tipo:form.tipo||"accion"};
+    const n=[...stocks, newItem];
+    setStocks(n);
+    // Save immediately and verify
+    localStorage.setItem("portfolio_stocks", JSON.stringify(n));
+    console.log("Added stock, saved:", n.length, "items");
+    setSaved(true); setTimeout(()=>setSaved(false),1800);
+    setModal(null);
+    setTimeout(fetchPrices, 500);
   }
   function addCrypto() {
     const n=[...crypto,{id:"c"+Date.now(),symbol:form.symbol?.toUpperCase()||"",name:form.name||"",amount:+form.amount||0,avgBuyUSD:+form.avgBuyUSD||0,priceUSD:null,change24h:null}];
